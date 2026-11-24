@@ -1,0 +1,22 @@
+# Dependencies and build output
+oh_modules/
+.hvigor/
+build/
+*.hap
+*.hsp
+*.app
+
+# IDE and local configuration
+.idea/
+*.iml
+local.properties
+
+# Signing credentials
+*.p12
+*.jks
+*.keystore
+
+# Logs and OS files
+*.log
+.DS_Store
+Thumbs.db
