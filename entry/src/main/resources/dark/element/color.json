@@ -1,0 +1,12 @@
+{
+  "color": [
+    { "name": "start_window_background", "value": "#131A28" },
+    { "name": "app_background", "value": "#131A28" },
+    { "name": "surface", "value": "#202A3B" },
+    { "name": "brand_primary", "value": "#8EA8FF" },
+    { "name": "text_primary", "value": "#E7EDF8" },
+    { "name": "text_secondary", "value": "#A7B3C7" },
+    { "name": "divider", "value": "#344158" },
+    { "name": "demo_background", "value": "#293B61" }
+  ]
+}

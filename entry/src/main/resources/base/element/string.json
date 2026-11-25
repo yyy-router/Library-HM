@@ -1,0 +1,6 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "Library-HM 阅读器主模块" },
+    { "name": "ability_desc", "value": "鸿蒙平板阅读器" }
+  ]
+}
