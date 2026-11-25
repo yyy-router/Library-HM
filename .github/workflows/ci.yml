@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Quality Gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false
+      - name: Install locked development dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check project, resources, architecture, files and workflows
+        run: npm run check
+      - name: Type-check logic and run regression tests
+        run: npm test
+  harmony:
+    name: HarmonyOS Gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Set up Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install --no-install-recommends -y libgl1
+      - name: Install and verify the pinned HarmonyOS toolchain
+        run: bash scripts/ci/setup-harmony.sh
+      - name: Install HarmonyOS dependencies
+        shell: pwsh
+        run: ./scripts/ci/build-harmony.ps1 -Task Install
+      - name: Check ArkTS with official Code Linter
+        shell: pwsh
+        run: ./scripts/ci/build-harmony.ps1 -Task Lint
+      - name: Compile ArkTS and ArkUI into an unsigned HAP
+        shell: pwsh
+        run: ./scripts/ci/build-harmony.ps1 -Task Build
+      - name: Upload Code Linter report
+        if: ${{ always() }}
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: codelinter-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .local/ci/reports/codelinter.json
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Upload unsigned HAP
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: entry-unsigned-${{ github.run_id }}-${{ github.run_attempt }}
+          path: entry/build/default/outputs/default/*-unsigned.hap
+          if-no-files-found: error
+          retention-days: 7
