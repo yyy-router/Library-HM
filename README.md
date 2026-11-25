@@ -26,6 +26,19 @@
 - PDF、EPUB 文件选择、下载、解析、渲染和持久化尚未实现。
 - 演示书籍不包含真实文件，演示进度仅在本次运行中保留。
 
-2026-11-25，用户已在鸿蒙开发 IDE 中确认项目骨架编译通过。尚未记录模拟器或真机运行验证结果。
+2026-11-25，用户已在鸿蒙开发 IDE 中确认项目骨架编译通过；本地 Windows 命令行也已完成官方 Code Linter 检查和未签名 HAP 编译。尚未记录模拟器或真机运行验证结果。
 
-本地架构说明与后续替换位置见 `ARCHITECTURE.md`，协作规则见 [AGENTS.md](AGENTS.md)。
+本地架构说明与后续替换位置见 `docs/architecture.md`，协作规则见 [AGENTS.md](AGENTS.md)。
+
+## CI/CD
+
+使用 Node.js 24–26 执行开发检查：
+
+```text
+npm ci --ignore-scripts --no-audit --no-fund
+npm run ci
+```
+
+推送分支和创建 PR 后，GitHub Actions 自动执行工程与资源检查、分层依赖检查、基础格式与凭证扫描、纯逻辑类型检查和回归测试。PR 还检查标题格式与关联 issue。
+
+独立的 `HarmonyOS Gate` 在 GitHub 托管的 Ubuntu runner 上安装并校验固定版本的华为命令行工具，自动执行官方 Code Linter 和 Hvigor 原生编译，保存检查报告与未签名 HAP。合并规则要求基础检查和原生检查均通过；本地 `npm run ci` 只执行辅助检查。工具版本、验证边界与规则设置见 [CI/CD 说明](docs/ci.md)。

@@ -1,5 +1,6 @@
 # Dependencies and build output
 oh_modules/
+node_modules/
 .hvigor/
 build/
 *.hap
@@ -25,7 +26,12 @@ local.properties
 *.credentials.json
 *.local.json
 .local/
-docs/
+/scripts/run-harmony.local.ps1
+
+# Documentation: keep existing local notes ignored; share the CI guide
+!/docs/
+/docs/*
+!/docs/ci.md
 
 # Logs and OS files
 *.log

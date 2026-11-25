@@ -1,0 +1,20 @@
+{
+  "name": "library-hm-ci",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Library-HM development checks; independent of the HarmonyOS build toolchain",
+  "engines": {
+    "node": ">=24 <27"
+  },
+  "scripts": {
+    "check": "node scripts/ci/check.mjs",
+    "build:logic": "node scripts/ci/build-logic.mjs",
+    "test": "npm run build:logic && node --test tests/logic.test.cjs tests/gates.test.mjs tests/native.test.mjs",
+    "ci": "npm run check && npm test"
+  },
+  "devDependencies": {
+    "json5": "2.2.3",
+    "typescript": "5.9.3",
+    "yaml": "2.9.1"
+  }
+}
