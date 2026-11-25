@@ -77,6 +77,15 @@ test: 验证 PDF 文件打开流程
 
 ---
 
+## 文档组织【强制】
+
+- `README.md`、`AGENTS.md` 等仓库入口与治理文件保留在根目录。
+- 架构、接口、CI/CD、设计和验证说明统一放在 `docs/` 下，按主题组织，优先更新已有文档。
+- 不得为每轮改动在项目根目录新增说明、测试报告或变更记录文件。
+- 移动文档时同步更新相关引用；沿用现有本地文档的忽略约定，共享文档按需加入跟踪范围，不批量解除忽略。
+
+---
+
 ## 凭证与敏感文件【强制】
 
 **任何登录凭证、密码、token、Cookie、会话数据，以及私钥和签名密钥，都不得提交到仓库。**
@@ -100,15 +109,25 @@ local.properties
 
 ## 当前阶段
 
-**原生鸿蒙工程骨架已建立；用户于 2026-11-25 在鸿蒙开发 IDE 中确认编译通过，尚未记录设备运行验证结果。**
+**原生鸿蒙工程骨架已建立；2026-11-25 用户在鸿蒙开发 IDE 中确认编译通过，本地 Windows 命令行的官方 Lint 与未签名 HAP 编译也已实测通过。尚未记录设备运行验证结果，GitHub Linux 工具链仍待远端验证。**
 
 已有内容：
 
 - `README.md`：项目介绍、技术方向与计划功能。
 - `.gitignore`：鸿蒙构建产物、依赖、本地配置和签名凭据的忽略规则。
 - `AGENTS.md`：Git 工作流与协作规范。
-- `ARCHITECTURE.md`：本地架构说明，记录分层、页面组织和临时实现的替换位置，按当前忽略规则不纳入提交。
+- `docs/architecture.md`：本地架构说明，记录分层、页面组织和临时实现的替换位置，按当前忽略规则不纳入提交。
 - `AppScope/`、`entry/`、`hvigor/`：应用资源、Stage 入口与构建配置。
+- `.github/workflows/`、`scripts/ci/`、`tests/`：自动质量门禁、鸿蒙原生门禁及回归检查，使用说明见 `docs/ci.md`。
+- `.github/rulesets/main.json`：主分支 PR 与必需状态检查的规则配置。
+
+验证约定：
+
+- 提交代码前运行 `npm run ci`；首次执行先用 `npm ci --ignore-scripts --no-audit --no-fund` 安装开发工具。
+- Node.js 下的类型检查和逻辑测试不等于 ArkTS / ArkUI 原生编译或设备验证，汇报时须区分。
+- 配备鸿蒙命令行工具时，运行 `scripts/ci/build-harmony.ps1` 验证官方 Code Linter 与原生编译；没有工具链时必须明确记录未执行。
+- 原生门禁在 GitHub 托管的隔离 Ubuntu runner 上自动执行；不得将外部 PR 自动提交到持久化自托管 runner。
+- 合并前必须通过 `Quality Gate` 和 `HarmonyOS Gate`；修改工作流检查名时同步更新 `.github/rulesets/main.json` 与远端规则。
 
 页面约定：
 
