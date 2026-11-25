@@ -13,18 +13,21 @@ const { DemoFileImporter } = load('data/demo/DemoFileImporter.js');
 const { HomeViewModel } = load('features/home/HomeViewModel.js');
 const { BookshelfViewModel } = load('features/bookshelf/BookshelfViewModel.js');
 const { ReaderViewModel } = load('features/reader/ReaderViewModel.js');
+const { RecommendationState } = load('features/home/HomeViewModel.js');
+const { ShelfFilter, ShelfSort } = load('domain/model/ShelfEntry.js');
+const { AccountSession } = load('domain/model/AccountSession.js');
 
 test('catalog searches title, author and format; empty query returns demo books', async () => {
   const catalog = new DemoBookCatalogRepository();
-  assert.equal((await catalog.search('')).length, 3);
-  assert.equal((await catalog.search('  pdf ')).length, 1);
+  assert.equal((await catalog.search('')).length, 12);
+  assert.equal((await catalog.search('  pdf ')).length, 4);
   assert.equal((await catalog.search('指南')).length, 1);
-  assert.equal((await catalog.search('演示书籍')).length, 3);
+  assert.equal((await catalog.search('林屿')).length, 1);
   assert.equal((await catalog.search('no-such-book')).length, 0);
 });
 
 test('bookshelf deduplicates IDs and returned list mutations do not alter storage', async () => {
-  const shelf = new DemoBookshelfRepository();
+  const shelf = new DemoBookshelfRepository(false);
   const book = new Book('test-book', '测试条目', '演示', BookFormat.EPUB, '');
   const original = (await shelf.listBooks()).length;
   await shelf.addBook(book); await shelf.addBook(book);
@@ -35,7 +38,7 @@ test('bookshelf deduplicates IDs and returned list mutations do not alter storag
 });
 
 test('history replaces a book record, sorts newest first and clamps progress', async () => {
-  const shelf = new DemoBookshelfRepository();
+  const shelf = new DemoBookshelfRepository(false);
   const [first, second] = await shelf.listBooks();
   await shelf.saveReadingRecord(new ReadingRecord(first, -1, 'demo:first', 10));
   await shelf.saveReadingRecord(new ReadingRecord(second, 0.5, 'demo:second', 20));
@@ -45,7 +48,7 @@ test('history replaces a book record, sorts newest first and clamps progress', a
   assert.equal(history[0].progress, 1); assert.equal(history[0].locator, 'demo:updated');
   assert.equal((await shelf.getReadingRecord(first.id)).progress, 1);
   assert.equal(await shelf.getReadingRecord('missing'), undefined);
-  assert.equal((await new DemoBookshelfRepository().listHistory()).length, 0);
+  assert.equal((await new DemoBookshelfRepository(false).listHistory()).length, 0);
 });
 
 test('demo import generates unique demo records without pretending to have a local file', async () => {
@@ -97,4 +100,82 @@ test('shared container supports search, shelf addition, import, history and resu
   assert.equal(shelf.history[0].book.id, imported.id);
   const resumed = new ReaderViewModel(app.bookshelf); await resumed.open(imported);
   assert.equal(resumed.progress, 0.42); assert.equal(resumed.busy, false);
+});
+
+test('recommendations require a session and never fall back to the demo search catalog', async () => {
+  const app = new AppContainer();
+  let calls = 0;
+  const catalog = {
+    search: async () => { throw new Error('search must not supply recommendations'); },
+    getRecommended: async () => { calls++; return []; }
+  };
+  const home = new HomeViewModel(catalog, app.bookshelf, app.account);
+  await home.loadSession();
+  assert.equal(calls, 0); assert.equal(home.recommendationState, RecommendationState.Guest);
+  home.session = new AccountSession('synthetic-user', '测试读者');
+  await home.loadRecommendations();
+  assert.equal(calls, 1); assert.equal(home.recommendationState, RecommendationState.Ready);
+  assert.deepEqual(home.recommendations, []);
+  const unconfigured = new HomeViewModel(app.catalog, app.bookshelf, app.account);
+  unconfigured.session = home.session; await unconfigured.loadRecommendations();
+  assert.equal(unconfigured.recommendationState, RecommendationState.Unconfigured);
+  assert.deepEqual(unconfigured.recommendations, []);
+});
+
+test('recommendations preserve upstream order, clear stale data on failure and reset on logout', async () => {
+  const app = new AppContainer();
+  const source = (await app.catalog.search('')).slice(0, 3).reverse();
+  let fail = false;
+  const catalog = {
+    search: async () => [],
+    getRecommended: async () => { if (fail) throw new Error('synthetic outage'); return source; }
+  };
+  const home = new HomeViewModel(catalog, app.bookshelf, app.account);
+  home.session = new AccountSession('synthetic-user', '测试读者');
+  await home.loadRecommendations();
+  assert.deepEqual(home.recommendations.map(book=>book.id), source.map(book=>book.id));
+  fail = true; await home.loadRecommendations();
+  assert.equal(home.recommendationState, RecommendationState.Error);
+  assert.deepEqual(home.recommendations, []);
+  await home.signOut();
+  assert.equal(home.recommendationState, RecommendationState.Guest);
+  assert.deepEqual(home.recommendations, []);
+});
+
+test('logging out ignores a late recommendation response from the prior session', async () => {
+  const app = new AppContainer();
+  let resolveList;
+  const response = new Promise(resolve => { resolveList = resolve; });
+  const catalog = { search: async () => [], getRecommended: () => response };
+  const home = new HomeViewModel(catalog, app.bookshelf, app.account);
+  home.session = new AccountSession('synthetic-user', '测试读者');
+  const loading = home.loadRecommendations();
+  await home.signOut();
+  resolveList(await app.catalog.search('')); await loading;
+  assert.equal(home.recommendationState, RecommendationState.Guest);
+  assert.deepEqual(home.recommendations, []);
+});
+
+test('bookshelf merges history once per book and applies reading filters, search and sort', async () => {
+  const app = new AppContainer();
+  const shelf = new BookshelfViewModel(app.bookshelf, app.importer);
+  await shelf.load();
+  assert.equal(shelf.entries.length, 8); assert.equal(shelf.readingCount, 4);
+  assert.equal(new Set(shelf.entries.map(entry=>entry.book.id)).size, 8);
+  assert.equal(shelf.lastReadBookId, shelf.history[0].book.id);
+  shelf.setFilter(ShelfFilter.Reading);
+  assert.equal(shelf.entries.length, 4);
+  assert.ok(shelf.entries.every(entry=>entry.progress>0 && entry.progress<1));
+  shelf.setFilter(ShelfFilter.Finished);
+  assert.equal(shelf.entries.length, 1); assert.equal(shelf.entries[0].progress, 1);
+  shelf.setFilter(ShelfFilter.All); shelf.setSort(ShelfSort.Progress);
+  assert.equal(shelf.entries[0].progress, 1);
+  shelf.setQuery('  林屿  '); assert.equal(shelf.entries.length, 1);
+  assert.equal(shelf.entries[0].book.title, '山海之间');
+  shelf.setQuery('missing-synthetic'); assert.equal(shelf.entries.length, 0);
+  shelf.setQuery('');
+  assert.deepEqual(shelf.rows(3).map(row=>row.entries.length), [3,3,2]);
+  await shelf.importBook();
+  assert.equal(shelf.filter, ShelfFilter.All); assert.equal(shelf.query, '');
+  assert.equal(shelf.entries.length, 9);
 });

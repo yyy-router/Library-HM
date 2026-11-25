@@ -1,27 +1,43 @@
 import { appContainer } from '../app/AppContainer';
-import { AppConfig } from '../core/config/AppConfig';
 import { Book } from '../domain/model/Book';
 import { BookshelfPage } from '../features/bookshelf/BookshelfPage';
 import { BookshelfViewModel } from '../features/bookshelf/BookshelfViewModel';
 import { HomePage } from '../features/home/HomePage';
 import { HomeViewModel } from '../features/home/HomeViewModel';
+import { AccountHeader } from '../features/home/AccountHeader';
+import { LoginDialog } from '../features/home/LoginDialog';
 import { ReaderPage } from '../features/reader/ReaderPage';
 import { ReaderViewModel } from '../features/reader/ReaderViewModel';
+import { ReaderIcon } from '../shared/components/ReaderIcon';
+import { ReaderTheme } from '../shared/theme/ReaderTheme';
 
 @Entry
 @Component
 struct Index {
   @State private activeTab: number = 0;
   @State private readerVisible: boolean = false;
+  @State private pageWidth: number = 1000;
   @State private homeViewModel: HomeViewModel = new HomeViewModel(
     appContainer.catalog, appContainer.bookshelf, appContainer.account);
   @State private bookshelfViewModel: BookshelfViewModel = new BookshelfViewModel(
     appContainer.bookshelf, appContainer.importer);
   @State private readerViewModel: ReaderViewModel = new ReaderViewModel(appContainer.bookshelf);
+  private loginController: CustomDialogController = new CustomDialogController({
+    builder: LoginDialog({ viewModel: this.homeViewModel }),
+    alignment: DialogAlignment.Center,
+    customStyle: true,
+    autoCancel: true,
+    cancel: () => this.homeViewModel.clearLoginDraft()
+  });
 
   aboutToAppear(): void {
     this.homeViewModel.loadSession();
     this.bookshelfViewModel.load();
+  }
+
+  aboutToDisappear(): void {
+    this.loginController.close();
+    this.homeViewModel.clearLoginDraft();
   }
 
   private openBook(book: Book): void {
@@ -43,51 +59,63 @@ struct Index {
     return false;
   }
 
+  @Builder
+  tabItem(index: number, title: string, icon: string) {
+    Button({ type: ButtonType.Normal }) {
+      Column({ space: 5 }) {
+        ReaderIcon({ name: icon, active: this.activeTab === index, iconSize: 22 })
+        Text(title).fontSize(12)
+          .fontWeight(this.activeTab === index ? FontWeight.Medium : FontWeight.Regular)
+          .fontColor(this.activeTab === index ? ReaderTheme.BLUE : ReaderTheme.MUTED)
+      }
+      .justifyContent(FlexAlign.Center)
+      .width(112)
+      .height(60)
+    }
+    .width(112)
+    .height(60)
+    .borderRadius(14)
+    .backgroundColor(this.activeTab === index ? ReaderTheme.BLUE_TINT : ReaderTheme.WHITE)
+    .accessibilityText(title)
+    .accessibilityDescription(this.activeTab === index ? '当前页面' : '')
+    .onClick(() => {
+      this.activeTab = index;
+      if (index === 1) this.bookshelfViewModel.load();
+    })
+  }
+
   build() {
     Column() {
       if (this.readerVisible) {
         ReaderPage({ viewModel: this.readerViewModel, onBack: () => this.closeReader() })
       } else {
-        Row({ space: 16 }) {
-          Text(AppConfig.APP_NAME)
-            .fontSize(22)
-            .fontWeight(FontWeight.Bold)
-            .fontColor($r('app.color.text_primary'))
-            .layoutWeight(1)
-          Text('演示模式')
-            .fontSize(14)
-            .fontColor($r('app.color.brand_primary'))
-            .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-            .backgroundColor($r('app.color.demo_background'))
-            .borderRadius(8)
-        }
-        .width('100%')
-        .padding({ left: 24, right: 24, top: 16, bottom: 12 })
-        Tabs({ index: this.activeTab, barPosition: BarPosition.End }) {
-          TabContent() {
-            HomePage({ viewModel: this.homeViewModel })
+        AccountHeader({ viewModel: this.homeViewModel, pageWidth: this.pageWidth,
+          onLogin: () => { this.loginController.open(); } })
+        Column() {
+          if (this.activeTab === 0) {
+            HomePage({ viewModel: this.homeViewModel, pageWidth: this.pageWidth,
+              onLogin: () => { this.loginController.open(); } })
+          } else {
+            BookshelfPage({ viewModel: this.bookshelfViewModel, pageWidth: this.pageWidth,
+              onOpenBook: (book: Book) => this.openBook(book) })
           }
-          .tabBar('首页')
-          TabContent() {
-            BookshelfPage({
-              viewModel: this.bookshelfViewModel,
-              onOpenBook: (book: Book) => this.openBook(book)
-            })
-          }
-          .tabBar('书架')
         }
-        .barMode(BarMode.Fixed)
-        .barHeight(64)
         .width('100%')
         .layoutWeight(1)
-        .onChange((index: number) => {
-          this.activeTab = index;
-          if (index === 1) this.bookshelfViewModel.load();
-        })
+        Row({ space: 36 }) {
+          this.tabItem(0, '首页', 'home')
+          this.tabItem(1, '书架', 'shelf')
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.Center)
+        .height(78)
+        .border({ width: { top: 1 }, color: ReaderTheme.LINE })
+        .backgroundColor(ReaderTheme.WHITE)
       }
     }
     .width('100%')
     .height('100%')
-    .backgroundColor($r('app.color.app_background'))
+    .backgroundColor(ReaderTheme.WHITE)
+    .onAreaChange((_oldArea: Area, newArea: Area) => { this.pageWidth = Number(newArea.width); })
   }
 }

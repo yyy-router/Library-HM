@@ -1,12 +1,36 @@
 {
   "color": [
-    { "name": "start_window_background", "value": "#F4F6FB" },
-    { "name": "app_background", "value": "#F4F6FB" },
-    { "name": "surface", "value": "#FFFFFF" },
-    { "name": "brand_primary", "value": "#315AE7" },
-    { "name": "text_primary", "value": "#202C41" },
-    { "name": "text_secondary", "value": "#6E7B90" },
-    { "name": "divider", "value": "#E1E7F0" },
-    { "name": "demo_background", "value": "#EAF0FF" }
+    {
+      "name": "start_window_background",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "app_background",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "surface",
+      "value": "#FFFFFF"
+    },
+    {
+      "name": "brand_primary",
+      "value": "#326DE6"
+    },
+    {
+      "name": "text_primary",
+      "value": "#20262F"
+    },
+    {
+      "name": "text_secondary",
+      "value": "#69717E"
+    },
+    {
+      "name": "divider",
+      "value": "#EDF0F4"
+    },
+    {
+      "name": "demo_background",
+      "value": "#EFF5FF"
+    }
   ]
 }
