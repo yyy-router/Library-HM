@@ -1,10 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cp, mkdtemp, readFile, writeFile, rm, realpath } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, writeFile, rm, realpath, mkdir as fsMkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import YAML from 'yaml';
+import JSON5 from 'json5';
+import signing from '../hvigor/local-signing.cjs';
+import importer from '../scripts/signing/import-from-profile.cjs';
 import { checkProject, checkArchitecture, checkWorkflows, inspectText, checkPullRequest } from '../scripts/ci/check.mjs';
 
 const root = process.cwd();
@@ -73,6 +76,93 @@ test('credential files, private keys and common embedded credentials are rejecte
   const token = 'gh' + 'p_' + 'x'.repeat(36);
   assert.ok(inspectText('fixture.txt', Buffer.from(token)).some(item => item.includes('GitHub credential')));
   assert.deepEqual(inspectText('.env.example', Buffer.from('EXAMPLE=placeholder\n')), []);
+  for (const file of ['debug.p7b', 'debug.cer', 'debug.csr', 'private.pem', 'private.key', 'sign-config.json5', '.sign/sign-config.json5']) {
+    assert.ok(inspectText(file, Buffer.from('{}')).some(item => item.includes('signing file')));
+  }
+});
+
+async function signingFixture(t) {
+  const directory = await mkdtemp(path.join(await realpath(tmpdir()), 'library-hm-signing-'));
+  t.after(async () => {
+    if (!path.basename(directory).startsWith('library-hm-signing-') || path.dirname(directory) !== await realpath(tmpdir())) throw new Error('Unexpected signing fixture path');
+    await rm(directory, { recursive: true, force: true });
+  });
+  return directory;
+}
+
+function syntheticSigning() {
+  return { signingConfigs: [{ name: 'default', type: 'HarmonyOS', material: {
+    certpath: 'synthetic.cer', keyAlias: 'synthetic-alias', keyPassword: 'synthetic-key-password',
+    profile: 'synthetic.p7b', signAlg: 'SHA256withECDSA', storeFile: 'synthetic.p12', storePassword: 'synthetic-store-password'
+  } }], products: [{ name: 'default', signingConfig: 'default' }] };
+}
+
+test('shared project gate rejects signing materials without showing values', async t => {
+  const directory = await fixture(t);
+  const file = path.join(directory, 'build-profile.json5');
+  const profile = JSON5.parse(await readFile(file, 'utf8'));
+  profile.app.signingConfigs = syntheticSigning().signingConfigs;
+  await writeFile(file, JSON.stringify(profile));
+  const { problems } = await checkProject(directory);
+  assert.ok(problems.some(item => item.includes('signing materials')));
+  assert.ok(!JSON.stringify(problems).includes('synthetic-key-password'));
+});
+
+test('missing local signing file keeps unsigned builds and shared profile unchanged', async t => {
+  const directory = await signingFixture(t);
+  const profile = { app: { signingConfigs: [], products: [{ name: 'default' }] } };
+  assert.equal(signing.applyLocalSigning(profile, directory), profile);
+  assert.deepEqual(profile.app.signingConfigs, []);
+});
+
+test('local signing changes only the build context, preserving the shared file and other products', async t => {
+  const directory = await signingFixture(t);
+  const profile = { app: { signingConfigs: [], products: [{ name: 'default' }, { name: 'other' }] } };
+  const source = JSON.stringify(profile);
+  await writeFile(path.join(directory, 'build-profile.json5'), source);
+  await fsMkdir(path.join(directory, '.local'));
+  await writeFile(path.join(directory, '.local/signing.json'), JSON.stringify(syntheticSigning()));
+  const configured = signing.applyLocalSigning(profile, directory);
+  assert.equal(configured.app.products[0].signingConfig, 'default');
+  assert.equal(configured.app.products[1].signingConfig, undefined);
+  assert.equal(configured.app.signingConfigs[0].material.keyPassword, 'synthetic-key-password');
+  assert.equal(JSON.stringify(profile), source);
+  assert.equal(await readFile(path.join(directory, 'build-profile.json5'), 'utf8'), source);
+});
+
+test('invalid local signing and shared embedded materials fail without leaking input', async t => {
+  const directory = await signingFixture(t);
+  await fsMkdir(path.join(directory, '.local'));
+  const file = path.join(directory, '.local/signing.json');
+  const profile = { app: { signingConfigs: [], products: [{ name: 'default' }] } };
+  await writeFile(file, '{invalid synthetic-sensitive-input');
+  assert.throws(() => signing.applyLocalSigning(profile, directory), error => !error.message.includes('synthetic-sensitive-input'));
+  const invalid = syntheticSigning(); invalid.products[0].name = 'missing';
+  await writeFile(file, JSON.stringify(invalid));
+  assert.throws(() => signing.applyLocalSigning(profile, directory), /Invalid local signing/);
+  assert.throws(() => signing.applyLocalSigning({ app: { signingConfigs: syntheticSigning().signingConfigs } }, directory), /Keep signing materials out/);
+});
+
+test('signing import preserves product settings and moves materials to a Git-ignored file', async t => {
+  const directory = await signingFixture(t);
+  assert.equal(spawnSync('git', ['init', '--quiet'], { cwd: directory }).status, 0);
+  await writeFile(path.join(directory, '.gitignore'), '.local/\n');
+  const local = syntheticSigning();
+  const profile = { app: { signingConfigs: local.signingConfigs, products: [{ name: 'default', signingConfig: 'default', compatibleSdkVersion: '5.0.0(12)' }] }, modules: [{ name: 'entry' }] };
+  const file = path.join(directory, 'build-profile.json5');
+  await writeFile(file, JSON.stringify(profile));
+  importer.migrate(directory);
+  const clean = JSON5.parse(await readFile(file, 'utf8'));
+  assert.deepEqual(clean.app.signingConfigs, []);
+  assert.equal(clean.app.products[0].signingConfig, undefined);
+  assert.equal(clean.app.products[0].compatibleSdkVersion, '5.0.0(12)');
+  assert.deepEqual(clean.modules, profile.modules);
+  assert.deepEqual(JSON.parse(await readFile(path.join(directory, '.local/signing.json'), 'utf8')), local);
+  const bytes = await readFile(path.join(directory, '.local/signing.json'), 'utf8');
+  await writeFile(file, JSON.stringify(profile));
+  assert.throws(() => importer.migrate(directory));
+  assert.equal(await readFile(path.join(directory, '.local/signing.json'), 'utf8'), bytes);
+  assert.deepEqual(JSON5.parse(await readFile(file, 'utf8')), profile);
 });
 
 test('trailing whitespace, invalid UTF-8 and conflict markers fail basic checks', () => {

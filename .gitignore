@@ -19,6 +19,14 @@ local.properties
 *.p12
 *.jks
 *.keystore
+*.pfx
+*.pem
+*.key
+*.p7b
+*.cer
+*.csr
+/.sign/
+/sign-config.json5
 
 # Local configuration and experiment data
 .env*

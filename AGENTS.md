@@ -98,12 +98,23 @@ local.properties
 *.p12
 *.jks
 *.keystore
+*.pfx
+*.pem
+*.key
+*.p7b
+*.cer
+*.csr
+.sign/
+sign-config.json5
+.local/signing.json
 ```
 
 - 新增任何会写入本地敏感数据的文件或目录前，**先更新 `.gitignore`**。
 - `.env` 文件、本地凭证文件和会话存储文件在引入时必须加入忽略规则。
 - 示例配置只使用占位值，不放入真实账号或凭证。
 - 提交前检查暂存区；`.gitignore` 不会自动移除已经被 Git 跟踪的敏感文件。
+- `build-profile.json5` 必须保持不含签名材料；本地签名存于被忽略的 `.local/signing.json`，由 Hvigor 在构建内存中注入。
+- IDE 自动签名若重新写入共享构建配置，先执行 `npm run signing:import` 隔离，再构建或提交；不得用 `skip-worktree` 隐藏敏感改动。
 
 ---
 

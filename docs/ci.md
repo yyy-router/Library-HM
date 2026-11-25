@@ -84,6 +84,24 @@ npm run ci
 
 也可分别指定 `-Task Install`、`-Task Lint`、`-Task Build`。Lint 和 Build 单独执行前先完成 Install。Windows 支持 Windows PowerShell 5.1 或 PowerShell 7；Linux 使用 PowerShell 7。
 
+## 本地调试签名
+
+`build-profile.json5` 是共享构建配置，必须纳入 Git，但不能包含签名密码、证书路径和密钥材料。密钥文件与本地签名配置均被忽略，不能通过 `skip-worktree` 隐藏共享文件中的凭证。
+
+当前 DevEco Studio 26.0.0 会将自动签名配置写入共享文件。首次配置或更新签名后，按以下步骤隔离：
+
+1. 在 IDE 的 `File > Project Structure > Project > Signing Configs` 中完成自动签名，确认目标 product 已关联对应方案。
+2. 执行 `npm run signing:import`，将签名方案与产品关联移入被忽略的 `.local/signing.json`，同时清理共享文件中的签名材料。该命令使用已安装的 CI 开发工具，不上传任何内容，也不生成新证书。
+3. 重新执行 IDE Run 或原生构建。`hvigorfile.ts` 使用官方构建上下文接口，在内存中加载本地签名；不会将材料写回共享配置。
+
+导入命令拒绝覆盖已有的 `.local/signing.json`。更新证书前，先将旧文件备份到 `.local/` 内的其他文件名，再导入新的配置。普通构建无需反复生成或导入证书。
+
+没有本地签名文件时，构建继续生成未签名 HAP，适用于 CI 和编译验证；真机运行需要配置本地签名。不要将本地签名文件或密码添加到 GitHub Actions。
+
+工程门禁会拒绝共享构建配置中的签名方案，文件扫描同时拒绝签名材料与独立签名配置文件，即使它们被强行加入 Git 跟踪。报错不输出密码值。
+
+实现依据：[华为 Hvigor 动态签名配置示例](https://developer.huawei.com/consumer/en/doc/HarmonyOS-Guides/ide-hvigor-config-ohos-sample/)。华为在 [26.0.1 版本说明](https://developer.huawei.com/consumer/cn/doc/harmonyos-releases/deveco-studio-new-features-2601/) 中新增了独立签名配置文件；当前实现兼容本机 26.0.0，不要求升级 IDE。
+
 ## 将检查设置为合并门禁
 
 规则源文件为 `.github/rulesets/main.json`，要求：

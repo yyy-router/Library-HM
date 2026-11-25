@@ -39,6 +39,7 @@ export async function checkProject(root) {
   const problems = [];
   const json = async file => parseConfig(file, await readFile(path.join(root, file), 'utf8'));
   const product = await json('build-profile.json5');
+  if (product.app?.signingConfigs?.length) problems.push('build-profile.json5: signing materials must stay in ignored .local/signing.json');
   const app = (await json('AppScope/app.json5')).app;
   if (!app || !/^[A-Za-z][\w]*(?:\.[A-Za-z][\w]*)+$/.test(app.bundleName || '')) problems.push('AppScope/app.json5: invalid bundleName');
   if (!product.app?.products?.some(item => item.name === 'default')) problems.push('build-profile.json5: missing default product');
@@ -143,7 +144,9 @@ export async function checkArchitecture(root) {
 
 export function inspectText(file, bytes) {
   const problems = [];
-  if (/\.(?:p12|pfx|jks|keystore|p7b|credentials\.json|local\.json)$/i.test(file) || /(^|\/)\.env(?:$|\.)/.test(file) && !file.endsWith('.env.example')) problems.push(`${file}: local credential or signing file`);
+  if (/\.(?:p12|pfx|pem|key|jks|keystore|p7b|cer|csr|credentials\.json|local\.json)$/i.test(file) ||
+      /(?:^|\/)(?:sign-config\.json5|\.sign\/)/.test(file) ||
+      /(^|\/)\.env(?:$|\.)/.test(file) && !file.endsWith('.env.example')) problems.push(`${file}: local credential or signing file`);
   if (bytes.includes(0)) return problems;
   let text;
   try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { return [...problems, `${file}: invalid UTF-8 text`]; }
