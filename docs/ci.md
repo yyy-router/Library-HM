@@ -116,6 +116,8 @@ npm run ci
 
 两条 Lint 警告来自 `BookItem.ets` 和 `EmptyState.ets` 的 `@performance/avoid-overusing-custom-component-check`，建议简单组件优先使用 `@Builder`。按当前门禁策略，warn 不阻止通过。原生检查首次在受限执行环境下失败；允许官方工具正常访问本机环境后，同一脚本完整运行成功。
 
+同日，[PR #5](https://github.com/yyy-router/Library-HM/pull/5) 在提交 `22b81af` 上首次完成了 [GitHub Actions 验证](https://github.com/yyy-router/Library-HM/actions/runs/45545986654)：`Quality Gate` 和 `HarmonyOS Gate` 均通过。Linux runner 成功安装并校验 Command Line Tools `5.1.0.840`，Code Linter 为 0 个 error、0 个 warn，Hvigor 原生编译成功，Lint 报告和未签名 HAP 两份 artifact 均已上传。
+
 仍需区分：
 
 - 工作流 Actionlint 检查此前已在本地通过。
