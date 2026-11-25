@@ -10,13 +10,26 @@ build/
 .idea/
 *.iml
 local.properties
+.preview/
+.clangd/
+*.hprof
 
 # Signing credentials
 *.p12
 *.jks
 *.keystore
 
+# Local configuration and experiment data
+.env*
+!.env.example
+*.credentials.json
+*.local.json
+.local/
+docs/
+
 # Logs and OS files
 *.log
 .DS_Store
 Thumbs.db
+.vscode/
+ARCHITECTURE.md
