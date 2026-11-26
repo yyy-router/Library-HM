@@ -167,7 +167,15 @@ export async function checkFiles(root, files = repositoryFiles(root)) {
   for (const file of ignored) problems.push(`${file}: tracked despite ignore rules`);
   for (const file of files) {
     if (!/\.(?:ets|ts|mjs|cjs|js|json5?|ya?ml|md|ps1|sh|svg|p12|pfx|jks|keystore|p7b)$|(^|\/)\.[^/]+$/.test(file)) continue;
-    problems.push(...inspectText(file, await readFile(path.join(root, file))));
+    let content;
+    try {
+      content = await readFile(path.join(root, file));
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      // 未暂存的移动仍在索引中保留旧路径；检查索引内容，避免遗漏待提交的敏感文件。
+      content = execFileSync('git', ['show', `:${file}`], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+    }
+    problems.push(...inspectText(file, content));
   }
   return { problems, detail: `${files.length} versioned or pending source files; secret values are never printed` };
 }

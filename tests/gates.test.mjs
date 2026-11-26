@@ -8,7 +8,7 @@ import YAML from 'yaml';
 import JSON5 from 'json5';
 import signing from '../hvigor/local-signing.cjs';
 import importer from '../scripts/signing/import-from-profile.cjs';
-import { checkProject, checkArchitecture, checkWorkflows, inspectText, checkPullRequest } from '../scripts/ci/check.mjs';
+import { checkProject, checkArchitecture, checkFiles, checkWorkflows, inspectText, checkPullRequest } from '../scripts/ci/check.mjs';
 
 const root = process.cwd();
 async function fixture(t) {
@@ -30,6 +30,26 @@ test('valid project and JSON5 comments/trailing commas pass', async t => {
   const directory = await fixture(t); const file = path.join(directory, 'build-profile.json5');
   const source = await readFile(file, 'utf8'); await writeFile(file, '// JSON5 fixture\n' + source.replace(/\n}\s*$/, ',\n}\n'));
   assert.deepEqual((await checkProject(directory)).problems, []);
+});
+
+test('file gate scans moved resources and retains credential checks for missing indexed files', async t => {
+  const directory = await fixture(t);
+  const git = args => {
+    const result = spawnSync('git', args, { cwd: directory, encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr);
+  };
+  git(['init', '--quiet']);
+  await writeFile(path.join(directory, 'old.svg'), '<svg/>\n');
+  git(['add', '--', 'old.svg']);
+  await rm(path.join(directory, 'old.svg'));
+  await writeFile(path.join(directory, 'new.svg'), '<svg/>\n');
+  assert.deepEqual((await checkFiles(directory)).problems, []);
+  await writeFile(path.join(directory, 'new.svg'), '<svg/>  \n');
+  assert.ok((await checkFiles(directory)).problems.some(problem => problem.includes('new.svg')));
+  await writeFile(path.join(directory, 'old.svg'), '-----BEGIN ' + 'PRIVATE KEY-----\n');
+  git(['add', '--', 'old.svg']);
+  await rm(path.join(directory, 'old.svg'));
+  assert.ok((await checkFiles(directory)).problems.some(problem => problem.includes('old.svg') && problem.includes('private key')));
 });
 
 test('broken static resources and missing pages fail the project gate', async t => {
