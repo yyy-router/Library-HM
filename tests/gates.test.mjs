@@ -69,11 +69,13 @@ test('both color modes have matching resources, legible text and qualified icons
     (Math.min(luminance(a), luminance(b)) + 0.05);
   for (const colors of [base, dark]) {
     for (const surface of ['surface', 'surface_subtle', 'app_background']) {
-      for (const text of ['text_primary', 'text_secondary']) {
+      for (const text of ['text_primary', 'text_secondary', 'text_muted']) {
         assert.ok(contrast(colors[surface], colors[text]) >= 4.5, `${surface}/${text}`);
       }
     }
     assert.ok(contrast(colors.brand_primary, colors.on_accent) >= 4.5);
+    assert.ok(contrast(colors.brand_primary, colors.demo_background) >= 4.5, 'selected navigation label');
+    assert.ok(contrast(colors.text_muted, colors.surface) >= 4.5, 'unselected navigation label');
   }
   assert.notEqual(base.app_background, dark.app_background);
   assert.notEqual(base.shelf_middle, dark.shelf_middle);
