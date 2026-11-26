@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const JSON5 = require('json5');
+const crypto = require('node:crypto');
 const { applyLocalSigning } = require('../../hvigor/local-signing.cjs');
 
 function migrate(projectRoot) {
@@ -23,11 +24,35 @@ function migrate(projectRoot) {
   const directory = path.join(projectRoot, '.local');
   const localFile = path.join(directory, 'signing.json');
   fs.mkdirSync(directory, { recursive: true });
-  // Exclusive creation protects an existing local signing file from being overwritten.
-  fs.writeFileSync(localFile, JSON.stringify({ signingConfigs, products }, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
-  try { applyLocalSigning(clean, projectRoot); }
-  catch (error) { fs.unlinkSync(localFile); throw error; }
-  fs.writeFileSync(file, JSON.stringify(clean, null, 2) + '\n');
+  const temporary = `${file}.${crypto.randomUUID()}.tmp`;
+  // Acquire ownership before writing, so a partial write can be cleaned up without deleting an existing file.
+  const localDescriptor = fs.openSync(localFile, 'wx', 0o600);
+  let temporaryOwned = false;
+  try {
+    try {
+      fs.writeFileSync(localDescriptor, JSON.stringify({ signingConfigs, products }, null, 2) + '\n');
+    } finally {
+      fs.closeSync(localDescriptor);
+    }
+    applyLocalSigning(clean, projectRoot);
+    const temporaryDescriptor = fs.openSync(temporary, 'wx', 0o600);
+    temporaryOwned = true;
+    try {
+      fs.writeFileSync(temporaryDescriptor, JSON.stringify(clean, null, 2) + '\n');
+    } finally {
+      fs.closeSync(temporaryDescriptor);
+    }
+    fs.renameSync(temporary, file);
+    temporaryOwned = false;
+  } catch (error) {
+    // Preserve the original failure if cleanup itself cannot complete.
+    try { fs.unlinkSync(localFile); } catch {}
+    throw error;
+  } finally {
+    if (temporaryOwned) {
+      try { fs.unlinkSync(temporary); } catch {}
+    }
+  }
 }
 
 if (require.main === module) {

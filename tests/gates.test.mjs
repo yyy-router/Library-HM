@@ -4,6 +4,8 @@ import { cp, mkdtemp, readFile, writeFile, rm, realpath, mkdir as fsMkdir } from
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import fs from 'node:fs';
+import crypto from 'node:crypto';
 import YAML from 'yaml';
 import JSON5 from 'json5';
 import signing from '../hvigor/local-signing.cjs';
@@ -240,6 +242,63 @@ test('signing import preserves product settings and moves materials to a Git-ign
   assert.throws(() => importer.migrate(directory));
   assert.equal(await readFile(path.join(directory, '.local/signing.json'), 'utf8'), bytes);
   assert.deepEqual(JSON5.parse(await readFile(file, 'utf8')), profile);
+});
+
+for (const phase of ['local-write', 'temporary-write', 'replace']) {
+  test(`signing import preserves the original profile and permits retry after ${phase} fails`, async t => {
+    const directory = await signingFixture(t);
+    assert.equal(spawnSync('git', ['init', '--quiet'], { cwd: directory }).status, 0);
+    await writeFile(path.join(directory, '.gitignore'), '.local/\n');
+    const profile = { app: { signingConfigs: syntheticSigning().signingConfigs,
+      products: [{ name: 'default', signingConfig: 'default', compatibleSdkVersion: '5.0.0(12)' }] },
+      modules: [{ name: 'entry', srcPath: './entry' }] };
+    const file = path.join(directory, 'build-profile.json5');
+    const original = '// Uncommitted SDK and module settings must survive exactly.\n' + JSON.stringify(profile, null, 2);
+    await writeFile(file, original);
+    const failure = Object.assign(new Error('synthetic I/O failure'), { code: phase === 'replace' ? 'EPERM' : 'ENOSPC' });
+    const write = fs.writeFileSync;
+    if (phase === 'replace') {
+      t.mock.method(fs, 'renameSync', () => { throw failure; });
+    } else {
+      t.mock.method(fs, 'writeFileSync', (descriptor, data, ...args) => {
+        const isLocal = JSON.parse(data).signingConfigs !== undefined;
+        if (isLocal === (phase === 'local-write')) {
+          write(descriptor, 'partial fixture');
+          throw failure;
+        }
+        return write(descriptor, data, ...args);
+      });
+    }
+    assert.throws(() => importer.migrate(directory), error => error === failure);
+    t.mock.restoreAll();
+    assert.equal(await readFile(file, 'utf8'), original);
+    assert.deepEqual(fs.readdirSync(path.join(directory, '.local')), []);
+    assert.deepEqual(fs.readdirSync(directory).filter(name => name.endsWith('.tmp')), []);
+    importer.migrate(directory);
+    const clean = JSON5.parse(await readFile(file, 'utf8'));
+    assert.deepEqual(clean.modules, profile.modules);
+    assert.equal(clean.app.products[0].compatibleSdkVersion, '5.0.0(12)');
+    assert.deepEqual(clean.app.signingConfigs, []);
+    assert.deepEqual(JSON.parse(await readFile(path.join(directory, '.local/signing.json'), 'utf8')).signingConfigs,
+      profile.app.signingConfigs);
+  });
+}
+
+test('signing import never deletes an existing temporary path on a creation collision', async t => {
+  const directory = await signingFixture(t);
+  assert.equal(spawnSync('git', ['init', '--quiet'], { cwd: directory }).status, 0);
+  await writeFile(path.join(directory, '.gitignore'), '.local/\n');
+  const file = path.join(directory, 'build-profile.json5');
+  const original = JSON.stringify({ app: { signingConfigs: syntheticSigning().signingConfigs,
+    products: [{ name: 'default', signingConfig: 'default' }] } });
+  await writeFile(file, original);
+  const temporary = `${file}.synthetic-collision.tmp`;
+  await writeFile(temporary, 'unrelated existing content');
+  t.mock.method(crypto, 'randomUUID', () => 'synthetic-collision');
+  assert.throws(() => importer.migrate(directory), { code: 'EEXIST' });
+  assert.equal(await readFile(file, 'utf8'), original);
+  assert.equal(await readFile(temporary, 'utf8'), 'unrelated existing content');
+  assert.deepEqual(fs.readdirSync(path.join(directory, '.local')), []);
 });
 
 test('trailing whitespace, invalid UTF-8 and conflict markers fail basic checks', () => {
