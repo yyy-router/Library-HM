@@ -39,6 +39,7 @@ export async function checkProject(root) {
   const problems = [];
   const json = async file => parseConfig(file, await readFile(path.join(root, file), 'utf8'));
   const product = await json('build-profile.json5');
+  if (product.app?.signingConfigs?.length) problems.push('build-profile.json5: signing materials must stay in ignored .local/signing.json');
   const app = (await json('AppScope/app.json5')).app;
   if (!app || !/^[A-Za-z][\w]*(?:\.[A-Za-z][\w]*)+$/.test(app.bundleName || '')) problems.push('AppScope/app.json5: invalid bundleName');
   if (!product.app?.products?.some(item => item.name === 'default')) problems.push('build-profile.json5: missing default product');
@@ -143,7 +144,9 @@ export async function checkArchitecture(root) {
 
 export function inspectText(file, bytes) {
   const problems = [];
-  if (/\.(?:p12|pfx|jks|keystore|p7b|credentials\.json|local\.json)$/i.test(file) || /(^|\/)\.env(?:$|\.)/.test(file) && !file.endsWith('.env.example')) problems.push(`${file}: local credential or signing file`);
+  if (/\.(?:p12|pfx|pem|key|jks|keystore|p7b|cer|csr|credentials\.json|local\.json)$/i.test(file) ||
+      /(?:^|\/)(?:sign-config\.json5|\.sign\/)/i.test(file) ||
+      /(^|\/)\.env(?:$|\.)/i.test(file) && !file.toLowerCase().endsWith('.env.example')) problems.push(`${file}: local credential or signing file`);
   if (bytes.includes(0)) return problems;
   let text;
   try { text = new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch { return [...problems, `${file}: invalid UTF-8 text`]; }
@@ -163,8 +166,16 @@ export async function checkFiles(root, files = repositoryFiles(root)) {
   const ignored = execFileSync('git', ['ls-files', '--cached', '--ignored', '--exclude-standard', '-z'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean);
   for (const file of ignored) problems.push(`${file}: tracked despite ignore rules`);
   for (const file of files) {
-    if (!/\.(?:ets|ts|mjs|cjs|js|json5?|ya?ml|md|ps1|sh|svg|p12|pfx|jks|keystore|p7b)$|(^|\/)\.[^/]+$/.test(file)) continue;
-    problems.push(...inspectText(file, await readFile(path.join(root, file))));
+    if (!/\.(?:ets|ts|mjs|cjs|js|json5?|ya?ml|md|ps1|sh|svg|p12|pfx|pem|key|jks|keystore|p7b|cer|csr)$|(^|\/)\.[^/]+$/i.test(file)) continue;
+    let content;
+    try {
+      content = await readFile(path.join(root, file));
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      // 未暂存的移动仍在索引中保留旧路径；检查索引内容，避免遗漏待提交的敏感文件。
+      content = execFileSync('git', ['show', `:${file}`], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+    }
+    problems.push(...inspectText(file, content));
   }
   return { problems, detail: `${files.length} versioned or pending source files; secret values are never printed` };
 }

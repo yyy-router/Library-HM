@@ -1,111 +1,172 @@
 import { Book } from '../../domain/model/Book';
-import { BookItem } from '../../shared/components/BookItem';
+import { CatalogCard } from '../../shared/components/CatalogCard';
 import { EmptyState } from '../../shared/components/EmptyState';
-import { HomeViewModel } from './HomeViewModel';
+import { ReaderIcon } from '../../shared/components/ReaderIcon';
+import { ReaderTheme } from '../../shared/theme/ReaderTheme';
+import { HomeViewModel, RecommendationState } from './HomeViewModel';
 
 @Component
 export struct HomePage {
   @ObjectLink viewModel: HomeViewModel;
+  @Prop pageWidth: number = 1000;
+  onLogin: () => void = () => {};
+
+  private columns(): number {
+    return this.pageWidth > 1100 ? 4 : this.pageWidth > 600 ? 3 : 2;
+  }
+
+  private caption(): string {
+    if (this.viewModel.searched) return `${this.viewModel.results.length} 本演示搜索结果 · 本地占位数据`;
+    if (!this.viewModel.session) return '登录后，查看为你推荐的图书。';
+    return '根据你的阅读发现好书。';
+  }
+
+  @Builder
+  searchBox() {
+    Row({ space: 12 }) {
+      ReaderIcon({ name: 'search', iconSize: 23 })
+      TextInput({ placeholder: '搜索书名、作者，或你感兴趣的内容', text: this.viewModel.keyword })
+        .layoutWeight(1)
+        .height(50)
+        .padding(0)
+        .fontSize(this.pageWidth > 600 ? 16 : 13)
+        .backgroundColor(ReaderTheme.SURFACE)
+        .fontColor(ReaderTheme.INK)
+        .placeholderColor(ReaderTheme.MUTED)
+        .enterKeyType(EnterKeyType.Search)
+        .onChange((value: string) => { this.viewModel.keyword = value; })
+        .onSubmit(() => { this.viewModel.search(); })
+      Button(this.viewModel.busy ? '处理中' : '搜索图书', { type: ButtonType.Normal })
+        .fontSize(this.pageWidth > 600 ? 14 : 12)
+        .fontColor(ReaderTheme.ON_ACCENT)
+        .height(50)
+        .width(this.pageWidth > 600 ? 112 : 80)
+        .borderRadius(13)
+        .backgroundColor(ReaderTheme.BLUE)
+        .enabled(!this.viewModel.busy)
+        .onClick(() => { this.viewModel.search(); })
+    }
+    .padding({ left: 23, right: 10, top: 10, bottom: 10 })
+    .width('100%')
+    .constraintSize({ maxWidth: 720 })
+    .height(72)
+    .borderRadius(20)
+    .border({ width: 1, color: ReaderTheme.INPUT_BORDER })
+    .backgroundColor(ReaderTheme.SURFACE)
+    .shadow({ radius: 22, color: ReaderTheme.SHADOW, offsetY: 7 })
+  }
+
+  @Builder
+  recommendationState() {
+    Column({ space: 15 }) {
+      if (this.viewModel.recommendationState === RecommendationState.Guest) {
+        Text('登录，发现为你推荐的好书')
+          .fontSize(20)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(ReaderTheme.INK)
+        Text('登录后获取你的推荐列表，也可以先搜索感兴趣的书。')
+          .fontSize(14)
+          .fontColor(ReaderTheme.SECONDARY)
+          .textAlign(TextAlign.Center)
+        Button('登录查看推荐', { type: ButtonType.Normal })
+          .height(46)
+          .fontSize(14)
+          .backgroundColor(ReaderTheme.BLUE)
+          .fontColor(ReaderTheme.ON_ACCENT)
+          .borderRadius(12)
+          .margin({ top: 8 })
+          .onClick(() => this.onLogin())
+      } else if (this.viewModel.recommendationState === RecommendationState.Loading) {
+        LoadingProgress().width(28).height(28).color(ReaderTheme.BLUE)
+        Text('正在获取推荐').fontSize(14).fontColor(ReaderTheme.SECONDARY)
+      } else {
+        Text(this.viewModel.recommendationState === RecommendationState.Unconfigured ? '推荐服务尚未接入' :
+          this.viewModel.recommendationState === RecommendationState.Error ? '暂时无法获取推荐' : '暂时没有推荐图书')
+          .fontSize(20)
+          .fontColor(ReaderTheme.INK)
+        Text('可以先搜索书籍，或前往书架继续阅读。')
+          .fontSize(14)
+          .fontColor(ReaderTheme.SECONDARY)
+        if (this.viewModel.recommendationState === RecommendationState.Error) {
+          Button('重试').backgroundColor(ReaderTheme.BLUE).fontColor(ReaderTheme.ON_ACCENT)
+            .onClick(() => { this.viewModel.loadRecommendations(); })
+        }
+      }
+    }
+    .padding({ top: 48, bottom: 44, left: 22, right: 22 })
+    .width('100%')
+    .borderRadius(20)
+    .backgroundColor(ReaderTheme.SURFACE)
+    .border({ width: 1, color: ReaderTheme.LINE })
+  }
 
   build() {
-    Scroll() {
-      Column({ space: 20 }) {
-        Text('发现下一本想读的书')
-          .fontSize(28)
-          .fontWeight(FontWeight.Bold)
-          .fontColor($r('app.color.text_primary'))
-          .width('100%')
-        GridRow({ columns: { xs: 1, sm: 1, md: 2, lg: 2 }, gutter: 16 }) {
-          GridCol() {
-            Column({ space: 14 }) {
-              Text('搜索书籍')
-                .fontSize(20)
-                .fontWeight(FontWeight.Medium)
-                .fontColor($r('app.color.text_primary'))
-              TextInput({ placeholder: '输入书名、作者，或留空查看演示书籍', text: this.viewModel.keyword })
-                .onChange((value: string) => { this.viewModel.keyword = value; })
-                .enabled(!this.viewModel.busy)
-              Button(this.viewModel.busy ? '处理中' : '搜索')
-                .width('100%')
-                .backgroundColor($r('app.color.brand_primary'))
-                .enabled(!this.viewModel.busy)
-                .onClick(() => { this.viewModel.search(); })
-              Text('当前搜索使用本地演示数据。')
-                .fontSize(14)
-                .fontColor($r('app.color.text_secondary'))
-            }
-            .alignItems(HorizontalAlign.Start)
-            .width('100%')
-            .padding(20)
-            .backgroundColor($r('app.color.surface'))
-            .borderRadius(12)
-          }
-          GridCol() {
-            Column({ space: 12 }) {
-              Text('账号登录')
-                .fontSize(20)
-                .fontWeight(FontWeight.Medium)
-                .fontColor($r('app.color.text_primary'))
-              if (this.viewModel.session) {
-                Text(this.viewModel.session?.displayName || '')
-                  .fontColor($r('app.color.text_primary'))
-                Button('退出登录')
-                  .enabled(!this.viewModel.busy)
-                  .onClick(() => { this.viewModel.signOut(); })
-              } else {
-                TextInput({ placeholder: '邮箱（登录占位）', text: this.viewModel.email })
-                  .type(InputType.Email)
-                  .enabled(!this.viewModel.busy)
-                  .onChange((value: string) => { this.viewModel.email = value; })
-                TextInput({ placeholder: '密码（登录占位）', text: this.viewModel.password })
-                  .type(InputType.Password)
-                  .enabled(!this.viewModel.busy)
-                  .onChange((value: string) => { this.viewModel.password = value; })
-                Button('登录')
-                  .width('100%')
-                  .enabled(!this.viewModel.busy)
-                  .backgroundColor($r('app.color.brand_primary'))
-                  .onClick(() => { this.viewModel.signIn(); })
-                Text('此处为登录入口占位，尚不发送账号请求。')
-                  .fontSize(14)
-                  .fontColor($r('app.color.text_secondary'))
-              }
-            }
-            .alignItems(HorizontalAlign.Start)
-            .width('100%')
-            .padding(20)
-            .backgroundColor($r('app.color.surface'))
-            .borderRadius(12)
-          }
+    Column() {
+      Column() { this.searchBox() }
+        .width('100%')
+        .padding({ top: this.pageWidth > 600 ? 34 : 20, bottom: 38 })
+      Row() {
+        Column({ space: 7 }) {
+          Text(this.viewModel.searched ? '搜索结果' : '为你推荐')
+            .fontSize(23)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(ReaderTheme.INK)
+          Text(this.caption()).fontSize(13).fontColor(ReaderTheme.SECONDARY)
         }
-        if (this.viewModel.message.length > 0) {
-          Text(this.viewModel.message)
-            .fontSize(14)
-            .fontColor($r('app.color.brand_primary'))
-            .width('100%')
-        }
-        if (!this.viewModel.searched) {
-          EmptyState({ title: '开始搜索', description: '搜索结果可以加入书架，再打开阅读器占位页。' })
-        } else if (this.viewModel.results.length === 0) {
-          EmptyState({ title: '暂无搜索结果', description: '试试“阅读”“PDF”或“EPUB”。' })
-        } else {
-          ForEach(this.viewModel.results, (book: Book) => {
-            BookItem({
-              book: book,
-              actionText: '加入书架',
-              actionEnabled: !this.viewModel.busy,
-              onAction: (selected: Book) => { this.viewModel.addToShelf(selected); }
-            })
-          }, (book: Book) => book.id)
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+        if (this.viewModel.searched) {
+          Button('返回推荐', { type: ButtonType.Normal })
+            .fontSize(13)
+            .fontColor(ReaderTheme.BLUE)
+            .backgroundColor(ReaderTheme.SURFACE)
+            .onClick(() => this.viewModel.clearSearch())
         }
       }
       .width('100%')
-      .constraintSize({ maxWidth: 1100 })
-      .alignItems(HorizontalAlign.Start)
-      .padding(24)
+      .margin({ bottom: 22 })
+      if (this.viewModel.message.length > 0) {
+        Text(this.viewModel.message)
+          .width('100%')
+          .fontSize(13)
+          .fontColor(ReaderTheme.BLUE)
+          .margin({ bottom: 12 })
+      }
+      if ((this.viewModel.searched ? this.viewModel.results : this.viewModel.recommendations).length > 0) {
+        WaterFlow() {
+          ForEach(this.viewModel.searched ? this.viewModel.results : this.viewModel.recommendations, (book: Book) => {
+            FlowItem() {
+              CatalogCard({ book: book, actionEnabled: !this.viewModel.busy,
+                onSave: (selected: Book) => { this.viewModel.addToShelf(selected); } })
+            }
+          }, (book: Book) => book.id)
+        }
+        .columnsTemplate('1fr '.repeat(this.columns()).trim())
+        .columnsGap(this.pageWidth > 600 ? 22 : 14)
+        .rowsGap(22)
+        .cachedCount(4)
+        .scrollBar(BarState.Auto)
+        .width('100%')
+        .layoutWeight(1)
+      } else {
+        Scroll() {
+          Column() {
+            if (this.viewModel.searched) {
+              EmptyState({ title: '暂无搜索结果', description: '换个书名或作者试试。' })
+            } else {
+              this.recommendationState()
+            }
+          }
+          .width('100%')
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .scrollBar(BarState.Auto)
+      }
     }
     .width('100%')
     .height('100%')
-    .scrollBar(BarState.Auto)
+    .constraintSize({ maxWidth: 1280 })
+    .padding({ left: this.pageWidth > 840 ? 48 : 24, right: this.pageWidth > 840 ? 48 : 24, bottom: 16 })
   }
 }

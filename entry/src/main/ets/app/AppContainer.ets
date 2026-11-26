@@ -6,6 +6,8 @@ import { AccountRepository } from '../domain/repository/AccountRepository';
 import { BookCatalogRepository } from '../domain/repository/BookCatalogRepository';
 import { BookshelfRepository } from '../domain/repository/BookshelfRepository';
 import { FileImporter } from '../domain/service/FileImporter';
+import { BookDownloader } from '../domain/service/BookDownloader';
+import { UnavailableBookDownloader } from '../data/demo/UnavailableBookDownloader';
 
 // 应用级装配入口：后续只在这里替换真实网络、文件与持久化实现。
 export class AppContainer {
@@ -13,6 +15,7 @@ export class AppContainer {
   readonly bookshelf: BookshelfRepository;
   readonly account: AccountRepository;
   readonly importer: FileImporter;
+  readonly downloader: BookDownloader;
 
   constructor() {
     if (!AppConfig.DEMO_MODE) {
@@ -22,6 +25,7 @@ export class AppContainer {
     this.bookshelf = new DemoBookshelfRepository();
     this.account = new DemoAccountRepository();
     this.importer = new DemoFileImporter();
+    this.downloader = new UnavailableBookDownloader();
   }
 }
 

@@ -20,12 +20,13 @@
 | 工程配置 | JSON/JSON5 语法错误、模块名称不一致、缺失默认产品、Ability 入口或页面文件 |
 | 资源与导入引用 | 缺失字符串/颜色/图标/页面配置、失效的相对导入、Windows 下容易遗漏的路径大小写错误 |
 | 分层依赖 | 业务模型依赖 UI/SDK、数据层反向依赖页面、页面绕过仓库接口直接创建数据实现、ViewModel 直接引用 SDK |
-| 文件与基础格式 | 忽略文件被强制纳入版本控制、常见凭证与签名文件、私钥及部分明显硬编码密钥、尾随空白、冲突标记、无效 UTF-8 |
+| 文件与基础格式 | 忽略文件被强制纳入版本控制、子目录中的签名配置、大小写扩展名的私钥与证书、部分明显硬编码密钥、尾随空白、冲突标记、无效 UTF-8 |
 | 工作流配置与规则 | YAML 错误、可变 Action 标签、过大的 token 写权限、缺少超时、跳过原生检查、错误的必需检查名称或来源应用 |
 | PR 规范 | 中文 Conventional Commits 标题、描述中的 `Closes #<issue>`，仅在 PR 事件检查 |
 | 纯逻辑类型检查 | 业务模型、仓库、演示实现、ViewModel 的严格 TypeScript 类型错误 |
-| 逻辑回归 | 搜索过滤、书架去重、演示导入、阅读历史更新和排序、进度边界与恢复、失败后的状态恢复、登录密码清理 |
-| 门禁回归 | 在临时副本中故意破坏资源、页面、路径大小写、依赖方向、工作流、合并规则和 PR 信息，验证检查确实失败 |
+| 逻辑回归 | 搜索过滤、清空后的迟到响应与错误丢弃、新搜索或登录的忙碌状态隔离、书架去重、演示导入、历史恢复、下载/重试、未下载阅读拦截、离线本地文件、登录密码清理 |
+| 主题资源回归 | 亮暗资源名称对应、普通/次级/弱化文字、选中和未选中导航、按钮的实际配色对比度，图标深色版本；不代替设备渲染验证 |
+| 门禁回归 | 在临时副本中故意破坏资源、页面、路径大小写、依赖方向、工作流、合并规则和 PR 信息；资源移动未暂存时检查索引中的旧路径与工作区新资源，保留凭证扫描 |
 | 原生脚本回归 | 模拟依赖安装失败、Lint 工具错误、错误报告、报告缺失或损坏、编译失败、HAP 缺失或为空，验证不能误报成功 |
 | SDK 完整性回归 | 模拟损坏的 SDK 下载，验证 SHA-256 不匹配时不会解压或执行工具 |
 
@@ -84,6 +85,26 @@ npm run ci
 
 也可分别指定 `-Task Install`、`-Task Lint`、`-Task Build`。Lint 和 Build 单独执行前先完成 Install。Windows 支持 Windows PowerShell 5.1 或 PowerShell 7；Linux 使用 PowerShell 7。
 
+## 本地调试签名
+
+`build-profile.json5` 是共享构建配置，必须纳入 Git，但不能包含签名密码、证书路径和密钥材料。密钥文件与本地签名配置均被忽略，不能通过 `skip-worktree` 隐藏共享文件中的凭证。
+
+当前 DevEco Studio 26.0.0 会将自动签名配置写入共享文件。首次配置或更新签名后，按以下步骤隔离：
+
+1. 在 IDE 的 `File > Project Structure > Project > Signing Configs` 中完成自动签名，确认目标 product 已关联对应方案。
+2. 执行 `npm run signing:import`，将签名方案与产品关联移入被忽略的 `.local/signing.json`，同时清理共享文件中的签名材料。该命令使用已安装的 CI 开发工具，不上传任何内容，也不生成新证书。
+3. 重新执行 IDE Run 或原生构建。`hvigorfile.ts` 使用官方构建上下文接口，在内存中加载本地签名；不会将材料写回共享配置。
+
+导入命令拒绝覆盖已有的 `.local/signing.json`。更新证书前，先将旧文件**移动或重命名**到 `.local/` 内的其他文件名，确认原路径已空出，再导入新的配置；仅复制备份不能空出原路径。普通构建无需反复生成或导入证书。
+
+导入在同目录的独占临时文件中写入清理后的构建配置，写完并关闭后才替换共享文件。写入或替换失败时保留原共享文件，并尝试清理本轮新建的本地签名和临时文件，以便重试；已有本地签名文件不会被覆盖或删除。
+
+没有本地签名文件时，构建继续生成未签名 HAP，适用于 CI 和编译验证；真机运行需要配置本地签名。不要将本地签名文件或密码添加到 GitHub Actions。
+
+工程门禁会拒绝共享构建配置中的签名方案，文件扫描同时拒绝签名材料与独立签名配置文件，即使它们被强行加入 Git 跟踪。报错不输出密码值。
+
+实现依据：[华为 Hvigor 动态签名配置示例](https://developer.huawei.com/consumer/en/doc/HarmonyOS-Guides/ide-hvigor-config-ohos-sample/)。华为在 [26.0.1 版本说明](https://developer.huawei.com/consumer/cn/doc/harmonyos-releases/deveco-studio-new-features-2601/) 中新增了独立签名配置文件；当前实现兼容本机 26.0.0，不要求升级 IDE。
+
 ## 将检查设置为合并门禁
 
 规则源文件为 `.github/rulesets/main.json`，要求：
@@ -103,20 +124,24 @@ npm run ci
 
 ## 验证状态与边界
 
-2026-11-25，在本地 Windows 环境实际执行：
+2026-11-26，在本地 Windows 环境实际执行：
 
 | 命令或阶段 | 结果 |
 | --- | --- |
-| `npm.cmd run ci` | 工程、资源、分层、文件及工作流检查通过；15 个纯逻辑源文件类型检查通过；35 项测试全部通过 |
-| `scripts/run-harmony.local.ps1` | 通过，依次完成真实依赖安装、官方 Lint、Hvigor clean 和 HAP 编译 |
-| 官方 Code Linter | 0 个 error，2 个 warn；报告位于 `.local/ci/reports/codelinter.json` |
-| 原生编译 | `BUILD SUCCESSFUL`，产出 `entry/build/default/outputs/default/entry-default-unsigned.hap`，163,185 字节 |
+| `npm run ci` | 工程、资源、分层、文件及工作流检查通过；20 个纯逻辑源文件类型检查通过；60 项测试全部通过 |
+| `scripts/run-harmony.local.ps1 -Task Lint` | 使用根目录源码执行官方 Code Linter，0 个 error、5 个 warn、1 个 suggestion |
+| `.local/ci/run-local-signing.mjs`（已忽略） | 使用本地已安装依赖运行 Hvigor 原生编译与签名，`BUILD SUCCESSFUL`；本轮未执行 clean 或重新安装依赖 |
+| 原生 HAP | 生成非空的未签名与调试签名 HAP，位于 `entry/build/default/outputs/default/` |
 
 本次使用 DevEco Studio 26 自带的 Windows 工具：Node.js `24.14.1`、ohpm `26.0.0.630`、Hvigor `6.26.9`、Code Linter `6.0.240`、JBR `25.0.2`、SDK `26.0.0.105`（API 26）。本机私有脚本 `scripts/run-harmony.local.ps1` 已被 Git 忽略，仅临时设置进程环境，执行结束后恢复。
 
-两条 Lint 警告来自 `BookItem.ets` 和 `EmptyState.ets` 的 `@performance/avoid-overusing-custom-component-check`，建议简单组件优先使用 `@Builder`。按当前门禁策略，warn 不阻止通过。原生检查首次在受限执行环境下失败；允许官方工具正常访问本机环境后，同一脚本完整运行成功。
+五条 Lint 警告建议简单组件优先使用 `@Builder`，另有一条 WaterFlow 预加载建议；按当前策略均不阻止通过。本轮没有安装到设备，尚未完成真机亮暗切换或横竖屏验收。下载成功和本地导入的逻辑测试使用文件适配器替身，只证明状态契约，不代表已下载、落盘或渲染真实图书。
 
-同日，[PR #5](https://github.com/yyy-router/Library-HM/pull/5) 在提交 `22b81af` 上首次完成了 [GitHub Actions 验证](https://github.com/yyy-router/Library-HM/actions/runs/45545986654)：`Quality Gate` 和 `HarmonyOS Gate` 均通过。Linux runner 成功安装并校验 Command Line Tools `5.1.0.840`，Code Linter 为 0 个 error、0 个 warn，Hvigor 原生编译成功，Lint 报告和未签名 HAP 两份 artifact 均已上传。
+评审修复见 Issue #11。签名导入回归只操作临时目录中的合成配置，覆盖本地签名写入、临时文件写入和替换失败：原共享文件逐字节保留，清理本轮新建文件后可重试；临时路径冲突不删除原有文件。真实本地签名不用于故障注入。
+
+PR #10 的 `be440c0` 已通过远端 `Quality Gate` 和 `HarmonyOS Gate`；本轮尚未推送的评审修复仍以本地结果为准。
+
+2026-11-25，[PR #5](https://github.com/yyy-router/Library-HM/pull/5) 在提交 `22b81af` 上首次完成了 [GitHub Actions 验证](https://github.com/yyy-router/Library-HM/actions/runs/45545986654)：`Quality Gate` 和 `HarmonyOS Gate` 均通过。Linux runner 成功安装并校验 Command Line Tools `5.1.0.840`，Code Linter 为 0 个 error、0 个 warn，Hvigor 原生编译成功，Lint 报告和未签名 HAP 两份 artifact 均已上传。
 
 仍需区分：
 
