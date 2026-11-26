@@ -2,35 +2,71 @@
   "color": [
     {
       "name": "start_window_background",
-      "value": "#FFFFFF"
+      "value": "#101317"
     },
     {
       "name": "app_background",
-      "value": "#FFFFFF"
+      "value": "#101317"
     },
     {
       "name": "surface",
-      "value": "#FFFFFF"
+      "value": "#191E25"
+    },
+    {
+      "name": "surface_subtle",
+      "value": "#222933"
     },
     {
       "name": "brand_primary",
-      "value": "#326DE6"
+      "value": "#8FAEFF"
+    },
+    {
+      "name": "on_accent",
+      "value": "#10213B"
     },
     {
       "name": "text_primary",
-      "value": "#20262F"
+      "value": "#E5EAF2"
     },
     {
       "name": "text_secondary",
-      "value": "#69717E"
+      "value": "#BBC4D1"
+    },
+    {
+      "name": "text_muted",
+      "value": "#98A5B6"
     },
     {
       "name": "divider",
-      "value": "#EDF0F4"
+      "value": "#303945"
+    },
+    {
+      "name": "input_border",
+      "value": "#424D5C"
     },
     {
       "name": "demo_background",
-      "value": "#EFF5FF"
+      "value": "#25344E"
+    },
+    {
+      "name": "progress_track",
+      "value": "#394451"
+    },
+    {
+      "name": "card_shadow",
+      "value": "#66000000"
+    },
+    {
+      "name": "shelf_top",
+      "value": "#494846"
+    },
+    {
+      "name": "shelf_middle",
+      "value": "#383735"
+    },
+    {
+      "name": "shelf_bottom",
+      "value": "#2B2A28"
     }
   ]
 }

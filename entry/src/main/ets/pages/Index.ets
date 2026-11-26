@@ -75,7 +75,7 @@ struct Index {
     .width(112)
     .height(60)
     .borderRadius(14)
-    .backgroundColor(this.activeTab === index ? ReaderTheme.BLUE_TINT : ReaderTheme.WHITE)
+    .backgroundColor(this.activeTab === index ? ReaderTheme.BLUE_TINT : ReaderTheme.SURFACE)
     .accessibilityText(title)
     .accessibilityDescription(this.activeTab === index ? '当前页面' : '')
     .onClick(() => {
@@ -110,12 +110,12 @@ struct Index {
         .justifyContent(FlexAlign.Center)
         .height(78)
         .border({ width: { top: 1 }, color: ReaderTheme.LINE })
-        .backgroundColor(ReaderTheme.WHITE)
+        .backgroundColor(ReaderTheme.SURFACE)
       }
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(ReaderTheme.WHITE)
+    .backgroundColor(ReaderTheme.BACKGROUND)
     .onAreaChange((_oldArea: Area, newArea: Area) => { this.pageWidth = Number(newArea.width); })
   }
 }

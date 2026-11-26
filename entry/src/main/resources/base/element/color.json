@@ -13,8 +13,16 @@
       "value": "#FFFFFF"
     },
     {
+      "name": "surface_subtle",
+      "value": "#F5F7FA"
+    },
+    {
       "name": "brand_primary",
       "value": "#326DE6"
+    },
+    {
+      "name": "on_accent",
+      "value": "#FFFFFF"
     },
     {
       "name": "text_primary",
@@ -25,12 +33,40 @@
       "value": "#69717E"
     },
     {
+      "name": "text_muted",
+      "value": "#7D8795"
+    },
+    {
       "name": "divider",
       "value": "#EDF0F4"
     },
     {
+      "name": "input_border",
+      "value": "#E3E8EF"
+    },
+    {
       "name": "demo_background",
       "value": "#EFF5FF"
+    },
+    {
+      "name": "progress_track",
+      "value": "#E6EBF1"
+    },
+    {
+      "name": "card_shadow",
+      "value": "#18263343"
+    },
+    {
+      "name": "shelf_top",
+      "value": "#FBFAF7"
+    },
+    {
+      "name": "shelf_middle",
+      "value": "#F0EEEA"
+    },
+    {
+      "name": "shelf_bottom",
+      "value": "#E5E2DD"
     }
   ]
 }

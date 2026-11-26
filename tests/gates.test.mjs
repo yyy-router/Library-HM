@@ -52,6 +52,37 @@ test('file gate scans moved resources and retains credential checks for missing 
   assert.ok((await checkFiles(directory)).problems.some(problem => problem.includes('old.svg') && problem.includes('private key')));
 });
 
+test('both color modes have matching resources, legible text and qualified icons', async () => {
+  const resources = path.join(root, 'entry/src/main/resources');
+  const palette = async mode => Object.fromEntries(JSON.parse(
+    await readFile(path.join(resources, mode, 'element/color.json'), 'utf8')).color.map(c => [c.name, c.value]));
+  const base = await palette('base'), dark = await palette('dark');
+  assert.deepEqual(Object.keys(base).sort(), Object.keys(dark).sort());
+  const luminance = hex => {
+    const rgb = hex.slice(1).match(/../g).map(c => parseInt(c, 16) / 255)
+      .map(c => c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+    return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+  };
+  const contrast = (a, b) => (Math.max(luminance(a), luminance(b)) + 0.05) /
+    (Math.min(luminance(a), luminance(b)) + 0.05);
+  for (const colors of [base, dark]) {
+    for (const surface of ['surface', 'surface_subtle', 'app_background']) {
+      for (const text of ['text_primary', 'text_secondary']) {
+        assert.ok(contrast(colors[surface], colors[text]) >= 4.5, `${surface}/${text}`);
+      }
+    }
+    assert.ok(contrast(colors.brand_primary, colors.on_accent) >= 4.5);
+  }
+  assert.notEqual(base.app_background, dark.app_background);
+  assert.notEqual(base.shelf_middle, dark.shelf_middle);
+  for (const icon of ['home', 'home_active', 'shelf', 'shelf_active', 'plus', 'search',
+    'close', 'chevron', 'user_active', 'bookmark_active']) {
+    const light = await readFile(path.join(resources, 'base/media', `ic_${icon}.svg`), 'utf8');
+    const night = await readFile(path.join(resources, 'dark/media', `ic_${icon}.svg`), 'utf8');
+    assert.notEqual(light, night, icon);
+  }
+});
+
 test('broken static resources and missing pages fail the project gate', async t => {
   const directory = await fixture(t);
   const colors = path.join(directory, 'entry/src/main/resources/base/element/color.json');

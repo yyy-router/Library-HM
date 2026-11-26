@@ -33,7 +33,7 @@ export struct BookCover {
     }
     .width('100%')
     .aspectRatio(this.fixedRatio > 0 ? this.fixedRatio : this.book.coverAspectRatio)
-    .backgroundColor(this.book.coverBackground)
+    .backgroundColor(ReaderTheme.SUBTLE)
     .clip(true)
   }
 }

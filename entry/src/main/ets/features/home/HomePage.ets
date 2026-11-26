@@ -30,15 +30,15 @@ export struct HomePage {
         .height(50)
         .padding(0)
         .fontSize(this.pageWidth > 600 ? 16 : 13)
-        .backgroundColor(ReaderTheme.WHITE)
+        .backgroundColor(ReaderTheme.SURFACE)
         .fontColor(ReaderTheme.INK)
-        .placeholderColor('#A0A7B3')
+        .placeholderColor(ReaderTheme.MUTED)
         .enterKeyType(EnterKeyType.Search)
         .onChange((value: string) => { this.viewModel.keyword = value; })
         .onSubmit(() => { this.viewModel.search(); })
       Button(this.viewModel.busy ? '处理中' : '搜索图书', { type: ButtonType.Normal })
         .fontSize(this.pageWidth > 600 ? 14 : 12)
-        .fontColor(ReaderTheme.WHITE)
+        .fontColor(ReaderTheme.ON_ACCENT)
         .height(50)
         .width(this.pageWidth > 600 ? 112 : 80)
         .borderRadius(13)
@@ -51,9 +51,9 @@ export struct HomePage {
     .constraintSize({ maxWidth: 720 })
     .height(72)
     .borderRadius(20)
-    .border({ width: 1, color: '#E3E8EF' })
-    .backgroundColor(ReaderTheme.WHITE)
-    .shadow({ radius: 22, color: '#10293E60', offsetY: 7 })
+    .border({ width: 1, color: ReaderTheme.INPUT_BORDER })
+    .backgroundColor(ReaderTheme.SURFACE)
+    .shadow({ radius: 22, color: ReaderTheme.SHADOW, offsetY: 7 })
   }
 
   @Builder
@@ -72,6 +72,7 @@ export struct HomePage {
           .height(46)
           .fontSize(14)
           .backgroundColor(ReaderTheme.BLUE)
+          .fontColor(ReaderTheme.ON_ACCENT)
           .borderRadius(12)
           .margin({ top: 8 })
           .onClick(() => this.onLogin())
@@ -87,7 +88,7 @@ export struct HomePage {
           .fontSize(14)
           .fontColor(ReaderTheme.SECONDARY)
         if (this.viewModel.recommendationState === RecommendationState.Error) {
-          Button('重试').backgroundColor(ReaderTheme.BLUE)
+          Button('重试').backgroundColor(ReaderTheme.BLUE).fontColor(ReaderTheme.ON_ACCENT)
             .onClick(() => { this.viewModel.loadRecommendations(); })
         }
       }
@@ -118,7 +119,7 @@ export struct HomePage {
           Button('返回推荐', { type: ButtonType.Normal })
             .fontSize(13)
             .fontColor(ReaderTheme.BLUE)
-            .backgroundColor(ReaderTheme.WHITE)
+            .backgroundColor(ReaderTheme.SURFACE)
             .onClick(() => this.viewModel.clearSearch())
         }
       }

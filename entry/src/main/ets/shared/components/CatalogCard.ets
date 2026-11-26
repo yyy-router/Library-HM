@@ -14,11 +14,11 @@ export struct CatalogCard {
       Column() {
         BookCover({ book: this.book })
           .constraintSize({ maxWidth: 174 })
-          .shadow({ radius: 7, color: '#241C2A3D', offsetX: 4, offsetY: 5 })
+          .shadow({ radius: 7, color: ReaderTheme.SHADOW, offsetX: 4, offsetY: 5 })
       }
       .width('100%')
       .padding({ left: 26, right: 26, top: 24, bottom: 22 })
-      .backgroundColor(this.book.coverBackground)
+      .backgroundColor(ReaderTheme.SUBTLE)
       Column({ space: 7 }) {
         Text(this.book.title)
           .fontSize(16)
@@ -41,7 +41,7 @@ export struct CatalogCard {
             .fontSize(12)
             .fontColor(ReaderTheme.MUTED)
             .padding({ left: 6, right: 6, top: 4, bottom: 4 })
-            .backgroundColor('#F5F7FA')
+            .backgroundColor(ReaderTheme.SUBTLE)
             .borderRadius(4)
           Blank()
           Button({ type: ButtonType.Normal }) {
@@ -64,7 +64,7 @@ export struct CatalogCard {
     }
     .width('100%')
     .borderRadius(17)
-    .backgroundColor(ReaderTheme.WHITE)
+    .backgroundColor(ReaderTheme.SURFACE)
     .border({ width: 1, color: ReaderTheme.LINE })
     .clip(true)
   }

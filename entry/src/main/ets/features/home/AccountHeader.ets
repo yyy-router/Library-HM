@@ -30,7 +30,7 @@ export struct AccountHeader {
     } else {
       Text(this.initial()).fontSize(size > 40 ? 21 : 14).fontWeight(FontWeight.Medium)
         .fontColor(ReaderTheme.BLUE).textAlign(TextAlign.Center)
-        .width(size).height(size).backgroundColor('#E8F0FF').borderRadius(size / 2)
+        .width(size).height(size).backgroundColor(ReaderTheme.BLUE_TINT).borderRadius(size / 2)
     }
   }
 
@@ -59,7 +59,7 @@ export struct AccountHeader {
         }
         .alignItems(VerticalAlign.Bottom)
         Progress({ value: this.quotaProgress(), total: 100, type: ProgressType.Linear })
-          .width('100%').color(ReaderTheme.BLUE).backgroundColor('#E1EAF9').style({ strokeWidth: 5 })
+          .width('100%').color(ReaderTheme.BLUE).backgroundColor(ReaderTheme.TRACK).style({ strokeWidth: 5 })
         if (this.viewModel.session?.remainingDownloads === undefined) {
           Text('额度暂不可用').fontSize(12).fontColor(ReaderTheme.MUTED)
         }
@@ -71,13 +71,13 @@ export struct AccountHeader {
       .borderRadius(12)
       Button('退出登录', { type: ButtonType.Normal })
         .width('100%').height(40).fontSize(13)
-        .fontColor(ReaderTheme.SECONDARY).backgroundColor(ReaderTheme.WHITE)
+        .fontColor(ReaderTheme.SECONDARY).backgroundColor(ReaderTheme.SURFACE)
         .enabled(!this.viewModel.busy)
         .onClick(() => { this.accountVisible = false; this.viewModel.signOut(); })
     }
     .width(300)
     .padding(23)
-    .backgroundColor(ReaderTheme.WHITE)
+    .backgroundColor(ReaderTheme.SURFACE)
   }
 
   build() {
@@ -99,9 +99,9 @@ export struct AccountHeader {
         .padding({ left: 15, right: 15 })
       }
       .height(40)
-      .backgroundColor(ReaderTheme.WHITE)
+      .backgroundColor(ReaderTheme.SURFACE)
       .borderRadius(22)
-      .border({ width: this.viewModel.session ? 0 : 1, color: '#E7EBF1' })
+      .border({ width: this.viewModel.session ? 0 : 1, color: ReaderTheme.INPUT_BORDER })
       .onClick(() => {
         if (this.viewModel.session) this.accountVisible = !this.accountVisible;
         else this.onLogin();
@@ -110,7 +110,7 @@ export struct AccountHeader {
         builder: this.accountPanel,
         placement: Placement.BottomRight,
         enableArrow: false,
-        popupColor: ReaderTheme.WHITE,
+        popupColor: ReaderTheme.SURFACE,
         radius: 21,
         onStateChange: (event: AccountPopupState) => { this.accountVisible = event.isVisible; }
       })

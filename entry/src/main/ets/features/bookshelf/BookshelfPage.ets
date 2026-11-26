@@ -37,7 +37,7 @@ export struct BookshelfPage {
             .fontSize(12)
             .fontColor(ReaderTheme.MUTED)
             .padding({ left: 5, right: 5, top: 2, bottom: 2 })
-            .backgroundColor('#F0F3F8')
+            .backgroundColor(ReaderTheme.SUBTLE)
             .borderRadius(5)
         }
       }
@@ -66,7 +66,9 @@ export struct BookshelfPage {
           .fontSize(12)
           .width(this.pageWidth > 600 ? 160 : 145)
           .height(36)
-          .backgroundColor('#F7F8FA')
+          .fontColor(ReaderTheme.INK)
+          .placeholderColor(ReaderTheme.MUTED)
+          .backgroundColor(ReaderTheme.SUBTLE)
           .borderRadius(9)
           .onChange((value: string) => this.viewModel.setQuery(value))
         Select([{ value: '最近阅读' }, { value: '书名排序' }, { value: '阅读进度' }])
@@ -75,7 +77,7 @@ export struct BookshelfPage {
             this.viewModel.sort === ShelfSort.Progress ? '阅读进度' : '最近阅读')
           .font({ size: 12 })
           .fontColor(ReaderTheme.MUTED)
-          .backgroundColor(ReaderTheme.WHITE)
+          .backgroundColor(ReaderTheme.SURFACE)
           .onSelect((index: number) => this.viewModel.setSort(index))
       }
       .padding({ top: 7, bottom: 7 })
@@ -109,12 +111,12 @@ export struct BookshelfPage {
         .width('100%')
         .height(14)
         .borderRadius(3)
-        .backgroundColor('#F0EEEA')
-        .linearGradient({ angle: 180, colors: [['#FBFAF7', 0], ['#F0EEEA', 0.5], ['#E5E2DD', 1]] })
-        .shadow({ radius: 8, color: '#104D4238', offsetY: 5 })
+        .backgroundColor(ReaderTheme.SHELF_MIDDLE)
+        .linearGradient({ angle: 180, colors: [[ReaderTheme.SHELF_TOP, 0], [ReaderTheme.SHELF_MIDDLE, 0.5], [ReaderTheme.SHELF_BOTTOM, 1]] })
+        .shadow({ radius: 8, color: ReaderTheme.SHADOW, offsetY: 5 })
     }
     .width('100%')
-    .linearGradient({ angle: 180, colors: [[ReaderTheme.WHITE, 0], ['#F5F6F8', 1]] })
+    .linearGradient({ angle: 180, colors: [[ReaderTheme.SURFACE, 0], [ReaderTheme.SUBTLE, 1]] })
     .borderRadius(12)
     .margin({ bottom: 32 })
   }
@@ -133,7 +135,7 @@ export struct BookshelfPage {
           Button({ type: ButtonType.Normal }) {
             Row({ space: 8 }) {
               ReaderIcon({ name: 'plus', iconSize: 19 })
-              Text('导入图书').fontSize(14).fontColor(ReaderTheme.WHITE)
+              Text('导入图书').fontSize(14).fontColor(ReaderTheme.ON_ACCENT)
             }
           }
           .height(46)
