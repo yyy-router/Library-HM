@@ -1,6 +1,7 @@
 import { AppError } from '../../core/error/AppError';
 import { AccountSession } from '../../domain/model/AccountSession';
 import { Book } from '../../domain/model/Book';
+import { LocalBookFile } from '../../domain/model/LocalBookFile';
 import { ReadingRecord } from '../../domain/model/ReadingRecord';
 import { AccountRepository } from '../../domain/repository/AccountRepository';
 import { BookCatalogRepository } from '../../domain/repository/BookCatalogRepository';
@@ -51,6 +52,16 @@ export class DemoBookshelfRepository implements BookshelfRepository {
   async listHistory(): Promise<ReadingRecord[]> {
     return Array.from(this.history.values()).sort((left: ReadingRecord, right: ReadingRecord) =>
       right.updatedAt - left.updatedAt);
+  }
+
+  async saveLocalFile(bookId: string, file: LocalBookFile): Promise<Book> {
+    const index = this.books.findIndex((book: Book) => book.id === bookId);
+    if (index < 0 || !file.isValid()) {
+      throw new AppError('INVALID_LOCAL_FILE', '书籍不存在或下载未生成有效本地文件。');
+    }
+    const book = this.books[index].withLocalFile(file);
+    this.books = this.books.map((item: Book) => item.id === bookId ? book : item);
+    return book;
   }
 
   async getReadingRecord(bookId: string): Promise<ReadingRecord | undefined> {

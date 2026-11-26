@@ -14,10 +14,14 @@ export class ReaderViewModel {
     this.repository = repository;
   }
 
-  async open(book: Book): Promise<void> {
+  async open(book: Book): Promise<boolean> {
     this.book = book;
     this.progress = 0;
     this.message = '';
+    if (!book.hasLocalFile()) {
+      this.message = '这本书尚无本地文件，请先在书架下载，或导入本地文件。';
+      return false;
+    }
     this.busy = true;
     try {
       const record = await this.repository.getReadingRecord(book.id);
@@ -27,10 +31,15 @@ export class ReaderViewModel {
     } finally {
       this.busy = false;
     }
+    return true;
   }
 
   async saveProgress(): Promise<void> {
     if (this.busy) return;
+    if (!this.book.hasLocalFile()) {
+      this.message = '尚无本地文件，不能记录阅读进度。';
+      return;
+    }
     this.busy = true;
     try {
       const locator = `demo:${Math.round(this.progress * 100)}`;

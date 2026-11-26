@@ -1,4 +1,5 @@
 import { Book, BookFormat } from '../../domain/model/Book';
+import { DownloadState } from '../../domain/model/ShelfEntry';
 import { ReaderTheme } from '../theme/ReaderTheme';
 import { BookCover } from './BookCover';
 
@@ -9,7 +10,16 @@ export struct BookItem {
   @Prop progress: number = 0;
   @Prop lastRead: boolean = false;
   @Prop bookWidth: number = 190;
+  @Prop downloadState: DownloadState = DownloadState.NotDownloaded;
+  @Prop downloadProgress: number = 0;
   onAction: (book: Book) => void = () => {};
+  onDownload: (book: Book) => void = () => {};
+
+  private actionLabel(): string {
+    if (this.book.hasLocalFile()) return this.progress > 0 ? '继续阅读' : '开始阅读';
+    if (this.downloadState === DownloadState.Downloading) return `下载中 ${Math.round(this.downloadProgress * 100)}%`;
+    return this.downloadState === DownloadState.Failed ? '重试下载' : '下载';
+  }
 
   build() {
     Column() {
@@ -42,7 +52,8 @@ export struct BookItem {
           .width('100%')
         Blank()
         Row() {
-          Text(this.progress >= 1 ? '已读完' : this.progress > 0 ? `已读 ${Math.round(this.progress * 100)}%` : '还未翻开')
+          Text(this.progress >= 1 ? '已读完' : this.progress > 0 ? `已读 ${Math.round(this.progress * 100)}%` :
+            this.book.hasLocalFile() ? '还未翻开' : '未下载')
             .fontSize(12)
             .fontColor(this.progress > 0 ? ReaderTheme.BLUE : ReaderTheme.MUTED)
             .layoutWeight(1)
@@ -51,19 +62,34 @@ export struct BookItem {
             .fontColor(ReaderTheme.MUTED)
         }
         .width('100%')
+        Button(this.actionLabel(), { type: ButtonType.Normal })
+          .width('100%')
+          .height(30)
+          .fontSize(12)
+          .fontColor(ReaderTheme.BLUE)
+          .backgroundColor(ReaderTheme.BLUE_TINT)
+          .borderRadius(6)
+          .enabled(this.downloadState !== DownloadState.Downloading)
+          .accessibilityText(`${this.actionLabel()}《${this.book.title}》`)
+          .onClick(() => {
+            if (this.book.hasLocalFile()) this.onAction(this.book);
+            else this.onDownload(this.book);
+          })
       }
-      .height(106)
+      .height(148)
       .width('100%')
       .alignItems(HorizontalAlign.Start)
       .padding({ left: 14, right: 12, top: 14, bottom: 14 })
       .backgroundColor(ReaderTheme.SUBTLE)
-      Progress({ value: this.progress * 100, total: 100, type: ProgressType.Linear })
+      Progress({ value: (this.downloadState === DownloadState.Downloading ?
+        this.downloadProgress : this.progress) * 100, total: 100, type: ProgressType.Linear })
         .width('100%')
         .height(4)
         .style({ strokeWidth: 4 })
         .color(ReaderTheme.BLUE)
         .backgroundColor(ReaderTheme.TRACK)
-        .accessibilityText(`阅读进度 ${Math.round(this.progress * 100)}%`)
+        .accessibilityText(this.downloadState === DownloadState.Downloading ?
+          `下载进度 ${Math.round(this.downloadProgress * 100)}%` : `阅读进度 ${Math.round(this.progress * 100)}%`)
     }
     .width(this.bookWidth)
     .border({ width: 1, color: ReaderTheme.LINE })
@@ -72,8 +98,6 @@ export struct BookItem {
     .clip(true)
     .shadow({ radius: 9, color: ReaderTheme.SHADOW, offsetX: 4, offsetY: 5 })
     .enabled(this.actionEnabled)
-    .accessibilityGroup(true)
-    .accessibilityText(`打开《${this.book.title}》，已读 ${Math.round(this.progress * 100)}%`)
-    .onClick(() => this.onAction(this.book))
+    .accessibilityDescription(this.book.hasLocalFile() ? '已有本地文件' : '已收藏，下载后可阅读')
   }
 }

@@ -45,14 +45,17 @@ export struct CatalogCard {
             .borderRadius(4)
           Blank()
           Button({ type: ButtonType.Normal }) {
-            ReaderIcon({ name: 'bookmark', active: true, iconSize: 18 })
+            Row({ space: 5 }) {
+              ReaderIcon({ name: 'bookmark', active: true, iconSize: 16 })
+              Text('收藏').fontSize(12).fontColor(ReaderTheme.BLUE)
+            }
           }
-          .width(34)
+          .width(68)
           .height(34)
           .backgroundColor(ReaderTheme.BLUE_TINT)
           .borderRadius(8)
           .enabled(this.actionEnabled)
-          .accessibilityText(`将《${this.book.title}》加入书架`)
+          .accessibilityText(`将《${this.book.title}》收藏到书架，下载后可阅读`)
           .onClick(() => this.onSave(this.book))
         }
         .width('100%')

@@ -20,7 +20,7 @@ struct Index {
   @State private homeViewModel: HomeViewModel = new HomeViewModel(
     appContainer.catalog, appContainer.bookshelf, appContainer.account);
   @State private bookshelfViewModel: BookshelfViewModel = new BookshelfViewModel(
-    appContainer.bookshelf, appContainer.importer);
+    appContainer.bookshelf, appContainer.importer, appContainer.downloader);
   @State private readerViewModel: ReaderViewModel = new ReaderViewModel(appContainer.bookshelf);
   private loginController: CustomDialogController = new CustomDialogController({
     builder: LoginDialog({ viewModel: this.homeViewModel }),
@@ -40,9 +40,12 @@ struct Index {
     this.homeViewModel.clearLoginDraft();
   }
 
-  private openBook(book: Book): void {
-    this.readerViewModel.open(book);
-    this.readerVisible = true;
+  private async openBook(book: Book): Promise<void> {
+    if (await this.readerViewModel.open(book)) {
+      this.readerVisible = true;
+    } else {
+      this.bookshelfViewModel.message = this.readerViewModel.message;
+    }
   }
 
   private closeReader(): void {
@@ -99,7 +102,7 @@ struct Index {
               onLogin: () => { this.loginController.open(); } })
           } else {
             BookshelfPage({ viewModel: this.bookshelfViewModel, pageWidth: this.pageWidth,
-              onOpenBook: (book: Book) => this.openBook(book) })
+              onOpenBook: (book: Book) => { this.openBook(book); } })
           }
         }
         .width('100%')

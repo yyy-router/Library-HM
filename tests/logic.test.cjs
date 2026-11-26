@@ -16,6 +16,11 @@ const { ReaderViewModel } = load('features/reader/ReaderViewModel.js');
 const { RecommendationState } = load('features/home/HomeViewModel.js');
 const { ShelfFilter, ShelfSort } = load('domain/model/ShelfEntry.js');
 const { AccountSession } = load('domain/model/AccountSession.js');
+const { LocalBookFile } = load('domain/model/LocalBookFile.js');
+const { DownloadState } = load('domain/model/ShelfEntry.js');
+
+// These are adapter contract fixtures. They do not claim that Node wrote a HarmonyOS file.
+const localFile = () => new LocalBookFile('file:///data/storage/el2/base/files/test.epub', 2048);
 
 test('catalog searches title, author and format; empty query returns demo books', async () => {
   const catalog = new DemoBookCatalogRepository();
@@ -81,25 +86,27 @@ test('search failures release busy state and display an error instead of success
 
 test('cancelled and failed imports do not add records or leave the screen busy', async () => {
   const app = new AppContainer(); const count = (await app.bookshelf.listBooks()).length;
-  const cancelled = new BookshelfViewModel(app.bookshelf, { importBook: async () => undefined });
+  const cancelled = new BookshelfViewModel(app.bookshelf, { importBook: async () => undefined }, app.downloader);
   await cancelled.importBook(); assert.equal(cancelled.busy, false);
-  const failed = new BookshelfViewModel(app.bookshelf, { importBook: async () => { throw new Error('synthetic failure'); } });
+  const failed = new BookshelfViewModel(app.bookshelf, { importBook: async () => { throw new Error('synthetic failure'); } }, app.downloader);
   await failed.importBook(); assert.equal(failed.busy, false); assert.match(failed.message, /失败/);
   assert.equal((await app.bookshelf.listBooks()).length, count);
 });
 
-test('shared container supports search, shelf addition, import, history and resume', async () => {
+test('shared container keeps demo bookmarks and imports unreadable without real downloads', async () => {
   const app = new AppContainer();
   const home = new HomeViewModel(app.catalog, app.bookshelf, app.account);
-  const shelf = new BookshelfViewModel(app.bookshelf, app.importer);
+  const shelf = new BookshelfViewModel(app.bookshelf, app.importer, app.downloader);
   home.keyword = '指南'; await home.search(); await home.addToShelf(home.results[0]);
   await shelf.load(); assert.ok(shelf.books.some(book => book.id === home.results[0].id));
   await shelf.importBook(); const imported = shelf.books[0];
-  const reader = new ReaderViewModel(app.bookshelf); await reader.open(imported);
-  reader.progress = 0.42; await reader.saveProgress(); await shelf.load();
-  assert.equal(shelf.history[0].book.id, imported.id);
-  const resumed = new ReaderViewModel(app.bookshelf); await resumed.open(imported);
-  assert.equal(resumed.progress, 0.42); assert.equal(resumed.busy, false);
+  await shelf.downloadBook(imported);
+  assert.equal(shelf.entries.find(entry => entry.book.id === imported.id).download.state, DownloadState.Failed);
+  assert.match(shelf.message, /尚未接入/);
+  const reader = new ReaderViewModel(app.bookshelf);
+  assert.equal(await reader.open(imported), false);
+  reader.progress = 0.42; await reader.saveProgress();
+  assert.equal(await app.bookshelf.getReadingRecord(imported.id), undefined);
 });
 
 test('recommendations require a session and never fall back to the demo search catalog', async () => {
@@ -158,7 +165,7 @@ test('logging out ignores a late recommendation response from the prior session'
 
 test('bookshelf merges history once per book and applies reading filters, search and sort', async () => {
   const app = new AppContainer();
-  const shelf = new BookshelfViewModel(app.bookshelf, app.importer);
+  const shelf = new BookshelfViewModel(app.bookshelf, app.importer, app.downloader);
   await shelf.load();
   assert.equal(shelf.entries.length, 8); assert.equal(shelf.readingCount, 4);
   assert.equal(new Set(shelf.entries.map(entry=>entry.book.id)).size, 8);
@@ -178,4 +185,105 @@ test('bookshelf merges history once per book and applies reading filters, search
   await shelf.importBook();
   assert.equal(shelf.filter, ShelfFilter.All); assert.equal(shelf.query, '');
   assert.equal(shelf.entries.length, 9);
+});
+
+test('local readiness requires non-demo verified file metadata, not a remote URL or bare URI', () => {
+  for (const file of [new LocalBookFile('', 100), new LocalBookFile('https://example.invalid/book', 100),
+    new LocalBookFile('//example.invalid/book', 100), new LocalBookFile('/', 100),
+    new LocalBookFile('file://', 100), new LocalBookFile('/data/book', 0),
+    new LocalBookFile('/data/book', NaN), new LocalBookFile('/data/book', Infinity)]) {
+    assert.equal(file.isValid(), false);
+  }
+  const metadata = new Book('remote', '远程书目', '测试', BookFormat.EPUB, '', localFile().uri, false);
+  assert.equal(metadata.hasLocalFile(), false);
+  const ready = metadata.withLocalFile(localFile());
+  assert.equal(ready.hasLocalFile(), true);
+  assert.equal(ready.asBookmark().hasLocalFile(), false);
+  assert.equal(ready.asBookmark().localUri, '');
+});
+
+test('home saves only bookmarks and adding an existing bookmark preserves its local file', async () => {
+  const app = new AppContainer();
+  const home = new HomeViewModel(app.catalog, app.bookshelf, app.account);
+  const incoming = new Book('remote-new', '新书目', '测试', BookFormat.EPUB, '').withLocalFile(localFile());
+  await home.addToShelf(incoming);
+  let book = (await app.bookshelf.listBooks()).find(book => book.id === incoming.id);
+  assert.equal(book.hasLocalFile(), false);
+  assert.match(home.message, /收藏/);
+  await app.bookshelf.saveLocalFile(incoming.id, localFile());
+  await home.addToShelf(incoming.asBookmark());
+  book = (await app.bookshelf.listBooks()).find(book => book.id === incoming.id);
+  assert.equal(book.hasLocalFile(), true);
+});
+
+test('a download stays unreadable until file registration completes and duplicate taps start one request', async () => {
+  const app = new AppContainer();
+  let finish, report, calls = 0;
+  const downloader = { download: (_book, callback) => {
+    calls++; report = callback; return new Promise(resolve => { finish = resolve; });
+  } };
+  const shelf = new BookshelfViewModel(app.bookshelf, app.importer, downloader);
+  await shelf.load(); const book = shelf.books[0];
+  const downloading = shelf.downloadBook(book);
+  report(0.6);
+  let entry = shelf.entries.find(entry => entry.book.id === book.id);
+  assert.equal(entry.download.state, DownloadState.Downloading);
+  assert.equal(entry.download.progress, 0.6); assert.equal(entry.book.hasLocalFile(), false);
+  assert.equal(await new ReaderViewModel(app.bookshelf).open(entry.book), false);
+  await shelf.downloadBook(book); assert.equal(calls, 1);
+  finish(localFile()); await downloading;
+  report(0.1); // A late callback must not revert the completed state.
+  entry = shelf.entries.find(entry => entry.book.id === book.id);
+  assert.equal(entry.download.state, DownloadState.Downloaded);
+  assert.equal(entry.book.hasLocalFile(), true);
+  await shelf.downloadBook(entry.book); assert.equal(calls, 1);
+  await shelf.downloadBook(book); assert.equal(calls, 1); // Ignore a stale UI callback after completion.
+  const reader = new ReaderViewModel(app.bookshelf);
+  assert.equal(await reader.open(entry.book), true);
+  reader.progress = 0.42; await reader.saveProgress();
+  const resumed = new ReaderViewModel(app.bookshelf);
+  assert.equal(await resumed.open(entry.book), true); assert.equal(resumed.progress, 0.42);
+});
+
+test('download failure or invalid files preserve bookmarks and history, then allow a retry', async () => {
+  for (const result of ['network-error', 'remote-url', 'empty-file']) {
+    const app = new AppContainer(); let calls = 0;
+    const downloader = { download: async () => {
+      if (++calls === 2) return localFile();
+      if (result === 'network-error') throw new Error('synthetic outage');
+      return result === 'remote-url' ? new LocalBookFile('https://example.invalid/book', 123) :
+        new LocalBookFile(localFile().uri, 0);
+    } };
+    const shelf = new BookshelfViewModel(app.bookshelf, app.importer, downloader);
+    await shelf.load(); const book = shelf.books[0]; const before = shelf.history;
+    await shelf.downloadBook(book);
+    assert.equal(shelf.entries.find(entry => entry.book.id === book.id).download.state, DownloadState.Failed);
+    assert.equal(shelf.books.length, 8);
+    assert.equal(shelf.books.find(item => item.id === book.id).hasLocalFile(), false);
+    assert.deepEqual(await app.bookshelf.listHistory(), before);
+    await shelf.downloadBook(book);
+    assert.equal(shelf.entries.find(entry => entry.book.id === book.id).download.state, DownloadState.Downloaded);
+    assert.deepEqual(await app.bookshelf.listHistory(), before);
+  }
+});
+
+test('an offline local import opens without an account or download, and an unready open cannot save progress', async () => {
+  const app = new AppContainer(); let downloads = 0;
+  const book = new Book('local-import', '本地文件', '测试', BookFormat.EPUB, '').withLocalFile(localFile());
+  const shelf = new BookshelfViewModel(app.bookshelf, {importBook: async () => book},
+    {download: async () => { downloads++; throw new Error('unexpected download'); }});
+  await shelf.load(); await shelf.importBook();
+  const entry = shelf.entries.find(entry => entry.book.id === book.id);
+  assert.equal(entry.download.state, DownloadState.Downloaded);
+  await shelf.downloadBook(entry.book); assert.equal(downloads, 0);
+  const reader = new ReaderViewModel(app.bookshelf);
+  assert.equal(await reader.open(entry.book), true);
+  reader.progress = 0.25; await reader.saveProgress();
+  assert.equal((await app.bookshelf.getReadingRecord(book.id)).progress, 0.25);
+  const unready = new Book('unready', '仅收藏', '', BookFormat.PDF, '');
+  assert.equal(await reader.open(unready), false);
+  reader.progress = 0.8; await reader.saveProgress();
+  assert.equal(await app.bookshelf.getReadingRecord(unready.id), undefined);
+  assert.equal((await app.bookshelf.getReadingRecord(book.id)).progress, 0.25);
+  assert.equal(await app.account.getSession(), undefined);
 });

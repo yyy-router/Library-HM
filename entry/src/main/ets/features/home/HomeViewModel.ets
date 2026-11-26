@@ -133,8 +133,8 @@ export class HomeViewModel {
     if (this.busy) return;
     this.busy = true;
     try {
-      await this.bookshelf.addBook(book);
-      this.message = '演示书籍已加入书架。';
+      await this.bookshelf.addBook(book.asBookmark());
+      this.message = '已收藏到书架，下载后即可阅读。';
     } catch {
       this.message = '加入书架失败。';
     } finally {

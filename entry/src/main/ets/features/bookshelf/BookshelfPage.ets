@@ -93,9 +93,11 @@ export struct BookshelfPage {
         ForEach(row.entries, (entry: ShelfEntry) => {
           Column() {
             BookItem({ book: entry.book, progress: entry.progress,
+              downloadState: entry.download.state, downloadProgress: entry.download.progress,
               lastRead: entry.book.id === this.viewModel.lastReadBookId,
               bookWidth: this.bookWidth(), actionEnabled: !this.viewModel.busy,
-              onAction: (book: Book) => this.onOpenBook(book) })
+              onAction: (book: Book) => this.onOpenBook(book),
+              onDownload: (book: Book) => { this.viewModel.downloadBook(book); } })
           }
           .layoutWeight(1)
         }, (entry: ShelfEntry) => entry.book.id)
