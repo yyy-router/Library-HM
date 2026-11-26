@@ -170,7 +170,7 @@ export struct BookshelfPage {
       .width('100%')
       .constraintSize({ maxWidth: 1280 })
       .alignItems(HorizontalAlign.Start)
-      .padding({ left: this.pageWidth > 840 ? 48 : 24, right: this.pageWidth > 840 ? 48 : 24, top: 12, bottom: 16 })
+      .padding({ left: this.pageWidth > 840 ? 48 : 24, right: this.pageWidth > 840 ? 48 : 24, top: 32, bottom: 16 })
     }
     .width('100%')
     .height('100%')

@@ -89,8 +89,10 @@ struct Index {
       if (this.readerVisible) {
         ReaderPage({ viewModel: this.readerViewModel, onBack: () => this.closeReader() })
       } else {
-        AccountHeader({ viewModel: this.homeViewModel, pageWidth: this.pageWidth,
-          onLogin: () => { this.loginController.open(); } })
+        if (this.activeTab === 0) {
+          AccountHeader({ viewModel: this.homeViewModel, pageWidth: this.pageWidth,
+            onLogin: () => { this.loginController.open(); } })
+        }
         Column() {
           if (this.activeTab === 0) {
             HomePage({ viewModel: this.homeViewModel, pageWidth: this.pageWidth,
