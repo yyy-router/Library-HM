@@ -16,17 +16,17 @@ local.properties
 *.hprof
 
 # Signing credentials
-*.p12
-*.jks
-*.keystore
-*.pfx
-*.pem
-*.key
-*.p7b
-*.cer
-*.csr
-/.sign/
-/sign-config.json5
+*.[pP]12
+*.[jJ][kK][sS]
+*.[kK][eE][yY][sS][tT][oO][rR][eE]
+*.[pP][fF][xX]
+*.[pP][eE][mM]
+*.[kK][eE][yY]
+*.[pP]7[bB]
+*.[cC][eE][rR]
+*.[cC][sS][rR]
+.sign/
+sign-config.json5
 
 # Local configuration and experiment data
 .env*

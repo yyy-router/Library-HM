@@ -148,6 +148,32 @@ function syntheticSigning() {
   } }], products: [{ name: 'default', signingConfig: 'default' }] };
 }
 
+test('signing ignores cover nested directories and mixed-case extensions on case-sensitive Git', async t => {
+  const directory = await signingFixture(t);
+  assert.equal(spawnSync('git', ['init', '--quiet'], { cwd: directory }).status, 0);
+  await writeFile(path.join(directory, '.gitignore'), await readFile(path.join(root, '.gitignore')));
+  const names = ['.sign/file.json', 'entry/.sign/file.json', 'sign-config.json5', 'entry/sign-config.json5',
+    'entry/private.KEY', 'nested/private.P12', 'private.PfX', 'private.JkS', 'private.KeyStore',
+    'private.P7B', 'private.PeM', 'private.CeR', 'private.CsR'];
+  const result = spawnSync('git', ['-c', 'core.ignorecase=false', 'check-ignore', '--no-index', '--stdin'],
+    { cwd: directory, input: names.join('\n') + '\n', encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(result.stdout.trim().split(/\r?\n/), names);
+});
+
+test('file gate inspects key and certificate files before any extension can bypass credential checks', async t => {
+  const directory = await signingFixture(t);
+  assert.equal(spawnSync('git', ['init', '--quiet'], { cwd: directory }).status, 0);
+  await fsMkdir(path.join(directory, 'nested'));
+  const names = ['nested/private.key', 'nested/private.pem', 'nested/private.cer', 'nested/private.csr',
+    'nested/private.KEY', 'nested/private.P12', 'nested/private.PfX', 'nested/private.JkS',
+    'nested/private.KeyStore', 'nested/private.P7B', 'nested/SIGN-CONFIG.JSON5', '.ENV'];
+  for (const name of names) await writeFile(path.join(directory, name), Buffer.from([0, 1]));
+  const { problems } = await checkFiles(directory, names);
+  for (const name of names) assert.ok(problems.some(problem => problem.startsWith(`${name}:`) &&
+    problem.includes('signing file')), name);
+});
+
 test('shared project gate rejects signing materials without showing values', async t => {
   const directory = await fixture(t);
   const file = path.join(directory, 'build-profile.json5');
