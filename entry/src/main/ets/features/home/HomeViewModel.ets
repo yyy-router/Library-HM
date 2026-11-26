@@ -23,6 +23,8 @@ export class HomeViewModel {
   recommendations: Book[] = [];
   recommendationState: RecommendationState = RecommendationState.Guest;
   private recommendationVersion: number = 0;
+  private searchVersion: number = 0;
+  private searching: boolean = false;
   private readonly catalog: BookCatalogRepository;
   private readonly bookshelf: BookshelfRepository;
   private readonly account: AccountRepository;
@@ -63,6 +65,11 @@ export class HomeViewModel {
   }
 
   clearSearch(): void {
+    this.searchVersion++;
+    if (this.searching) {
+      this.searching = false;
+      this.busy = false;
+    }
     this.keyword = '';
     this.results = [];
     this.searched = false;
@@ -77,15 +84,22 @@ export class HomeViewModel {
 
   async search(): Promise<void> {
     if (this.busy) return;
+    const version = ++this.searchVersion;
+    this.searching = true;
     this.busy = true;
     this.message = '';
     try {
-      this.results = await this.catalog.search(this.keyword);
+      const results = await this.catalog.search(this.keyword);
+      if (version !== this.searchVersion) return;
+      this.results = results;
       this.searched = true;
     } catch {
-      this.message = '搜索失败，请稍后重试。';
+      if (version === this.searchVersion) this.message = '搜索失败，请稍后重试。';
     } finally {
-      this.busy = false;
+      if (version === this.searchVersion) {
+        this.searching = false;
+        this.busy = false;
+      }
     }
   }
 

@@ -84,6 +84,56 @@ test('search failures release busy state and display an error instead of success
   await home.search(); assert.equal(home.busy, false); assert.match(home.message, /失败/);
 });
 
+test('clearing search ignores late success and failure while a normal search still completes', async () => {
+  const app = new AppContainer();
+  const results = await app.catalog.search('指南');
+  for (const rejectLate of [false, true]) {
+    let resolve, reject;
+    const response = new Promise((success, failure) => { resolve = success; reject = failure; });
+    const home = new HomeViewModel({ search: () => response }, app.bookshelf, app.account);
+    home.searched = true; home.keyword = 'pending';
+    const pending = home.search();
+    home.clearSearch();
+    assert.equal(home.busy, false); assert.equal(home.searched, false);
+    if (rejectLate) reject(new Error('synthetic late error')); else resolve(results);
+    await pending;
+    assert.equal(home.searched, false); assert.deepEqual(home.results, []);
+    assert.equal(home.message, ''); assert.equal(home.keyword, ''); assert.equal(home.busy, false);
+  }
+  const normal = new HomeViewModel(app.catalog, app.bookshelf, app.account);
+  normal.keyword = '指南'; await normal.search();
+  assert.equal(normal.searched, true); assert.deepEqual(normal.results, results);
+});
+
+test('a cleared search cannot overwrite or release the busy state of a newer search', async () => {
+  const app = new AppContainer(); const finish = [];
+  const home = new HomeViewModel({ search: () => new Promise(resolve => finish.push(resolve)) },
+    app.bookshelf, app.account);
+  home.keyword = 'old'; const old = home.search(); home.clearSearch();
+  home.keyword = 'new'; const current = home.search();
+  assert.equal(finish.length, 2);
+  finish[0]([]); await old;
+  assert.equal(home.busy, true); assert.equal(home.searched, false); assert.equal(home.keyword, 'new');
+  const results = await app.catalog.search('指南');
+  finish[1](results); await current;
+  assert.equal(home.busy, false); assert.equal(home.searched, true); assert.deepEqual(home.results, results);
+});
+
+test('clearing search and old search completion do not unlock a pending account operation', async () => {
+  const app = new AppContainer(); let finishSearch, finishLogin;
+  const home = new HomeViewModel({ search: () => new Promise(resolve => { finishSearch = resolve; }),
+    getRecommended: async () => [] },
+    app.bookshelf, { signIn: () => new Promise(resolve => { finishLogin = resolve; }) });
+  const old = home.search(); home.clearSearch();
+  home.email = 'synthetic@example.invalid'; home.password = 'synthetic-password';
+  const login = home.signIn();
+  home.clearSearch(); assert.equal(home.busy, true);
+  finishSearch([]); await old; assert.equal(home.busy, true);
+  finishLogin(new AccountSession('synthetic-user', '测试读者'));
+  await login; assert.equal(home.busy, false);
+  assert.equal(home.session.accountId, 'synthetic-user');
+});
+
 test('cancelled and failed imports do not add records or leave the screen busy', async () => {
   const app = new AppContainer(); const count = (await app.bookshelf.listBooks()).length;
   const cancelled = new BookshelfViewModel(app.bookshelf, { importBook: async () => undefined }, app.downloader);
