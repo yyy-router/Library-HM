@@ -5,7 +5,7 @@ import { ReaderIcon } from '../../shared/components/ReaderIcon';
 import { ReaderTheme } from '../../shared/theme/ReaderTheme';
 import { HomeViewModel, RecommendationState } from './HomeViewModel';
 import { CoverImageRepository } from '../../domain/service/CoverImageRepository';
-import { HomeMessage } from './HomeMessage';
+import { StatusMessage } from '../../shared/components/StatusMessage';
 
 @Component
 export struct HomePage {
@@ -160,8 +160,9 @@ export struct HomePage {
       .width('100%')
       .margin({ bottom: 22 })
       if (this.viewModel.message.length > 0) {
-        HomeMessage({ text: this.viewModel.message, expiresAt: this.viewModel.messageExpiresAt,
-          onExpire: (expiresAt: number) => this.viewModel.expireMessage(expiresAt) })
+        StatusMessage({ text: this.viewModel.message, expiresAt: this.viewModel.messageExpiresAt,
+          onExpire: (expiresAt: number, _revision: number) => this.viewModel.expireMessage(expiresAt) })
+          .margin({ bottom: 12 })
       }
       Stack({ alignContent: Alignment.TopStart }) {
         // 发现列表常驻，切换搜索时只隐藏，保留其原生滚动状态。

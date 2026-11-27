@@ -2,6 +2,7 @@ import { CoverImageRepository } from '../../domain/service/CoverImageRepository'
 import { BookCover } from '../../shared/components/BookCover';
 import { ReaderTheme } from '../../shared/theme/ReaderTheme';
 import { BookDetailsViewModel } from './BookDetailsViewModel';
+import { StatusMessage } from '../../shared/components/StatusMessage';
 
 @Component
 export struct BookDetailsPage {
@@ -73,10 +74,9 @@ export struct BookDetailsPage {
         .lineHeight(21)
         .fontColor(ReaderTheme.MUTED)
       if (this.viewModel.shelfMessage) {
-        Text(this.viewModel.shelfMessage)
-          .fontSize(13)
-          .lineHeight(22)
-          .fontColor(ReaderTheme.BLUE)
+        StatusMessage({ text: this.viewModel.shelfMessage, expiresAt: this.viewModel.shelfMessageExpiresAt,
+          messageRevision: this.viewModel.shelfMessageRevision, textLineHeight: 22,
+          onExpire: (expiresAt: number, revision: number) => this.viewModel.expireShelfMessage(expiresAt, revision) })
       }
     }
     .alignItems(HorizontalAlign.Start)

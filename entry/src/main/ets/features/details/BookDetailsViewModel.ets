@@ -18,6 +18,8 @@ export class BookDetailsViewModel {
   shelfLoading: boolean = false;
   saving: boolean = false;
   shelfMessage: string = '';
+  shelfMessageExpiresAt: number = 0;
+  shelfMessageRevision: number = 0;
   private version: number = 0;
   private readonly catalog: BookCatalogRepository;
   private readonly bookshelf: BookshelfRepository;
@@ -46,7 +48,7 @@ export class BookDetailsViewModel {
     this.shelfReady = false;
     this.shelfLoading = false;
     this.saving = false;
-    this.shelfMessage = '';
+    this.showShelfMessage('');
     await Promise.all([cached ? Promise.resolve() : this.loadDetails(), this.refreshShelf()]);
   }
 
@@ -55,6 +57,7 @@ export class BookDetailsViewModel {
     this.loading = false;
     this.shelfLoading = false;
     this.saving = false;
+    this.showShelfMessage('');
   }
 
   async loadDetails(): Promise<void> {
@@ -109,7 +112,7 @@ export class BookDetailsViewModel {
     const version = this.version;
     const bookId = this.book.id;
     this.shelfLoading = true;
-    this.shelfMessage = '';
+    this.showShelfMessage('');
     try {
       const books = await this.bookshelf.listBooks();
       if (version !== this.version) return;
@@ -118,7 +121,7 @@ export class BookDetailsViewModel {
     } catch {
       if (version !== this.version) return;
       this.shelfReady = false;
-      this.shelfMessage = '暂时无法读取收藏状态，请重试。';
+      this.showShelfMessage('暂时无法读取收藏状态，请重试。');
     } finally {
       if (version === this.version) this.shelfLoading = false;
     }
@@ -129,16 +132,28 @@ export class BookDetailsViewModel {
     const version = this.version;
     const book = this.book;
     this.saving = true;
-    this.shelfMessage = '';
+    this.showShelfMessage('');
     try {
       await this.bookshelf.addBook(book.asBookmark());
       if (version !== this.version) return;
       this.saved = true;
-      this.shelfMessage = '已收藏到书架，下载后即可阅读。';
+      this.showShelfMessage('已收藏到书架，下载后即可阅读。', true);
     } catch {
-      if (version === this.version) this.shelfMessage = '收藏失败，请重试。';
+      if (version === this.version) this.showShelfMessage('收藏失败，请重试。');
     } finally {
       if (version === this.version) this.saving = false;
     }
+  }
+
+  expireShelfMessage(expiresAt: number, revision: number): void {
+    if (expiresAt <= 0 || expiresAt !== this.shelfMessageExpiresAt || revision !== this.shelfMessageRevision ||
+      this.now() < expiresAt || this.shelfMessage !== '已收藏到书架，下载后即可阅读。') return;
+    this.showShelfMessage('');
+  }
+
+  private showShelfMessage(message: string, temporary: boolean = false): void {
+    this.shelfMessageRevision++;
+    this.shelfMessage = message;
+    this.shelfMessageExpiresAt = temporary ? this.now() + 3000 : 0;
   }
 }

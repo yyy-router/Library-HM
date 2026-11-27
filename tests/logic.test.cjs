@@ -223,6 +223,64 @@ test('detail cache expires after five minutes, evicts old entries and never reme
   await vm.open(remoteDetailBook('failed')); assert.equal(vm.message, ''); assert.equal(calls, 17);
 });
 
+test('detail bookmark success expires after three seconds while collection state is retained', async () => {
+  const book = remoteDetailBook(); let now = 0;
+  const shelf = new MemoryBookshelfRepository();
+  const vm = new BookDetailsViewModel({ getDetails: async selected => new BookDetails(selected) }, shelf, () => now);
+  await vm.open(book); await vm.save();
+  const expiry = vm.shelfMessageExpiresAt, revision = vm.shelfMessageRevision;
+  assert.equal(expiry, 3000); assert.ok(vm.shelfMessage); assert.equal(vm.saved, true);
+  now = 2999; vm.expireShelfMessage(expiry, revision); assert.ok(vm.shelfMessage);
+  now = 3000; vm.expireShelfMessage(expiry, revision);
+  assert.equal(vm.shelfMessage, ''); assert.equal(vm.shelfMessageExpiresAt, 0);
+  assert.equal(vm.saved, true); assert.equal((await shelf.listBooks()).length, 1);
+});
+
+test('an old detail notice cannot clear another selection even when both notices have the same deadline', async () => {
+  let now = 0;
+  const vm = new BookDetailsViewModel({ getDetails: async selected => new BookDetails(selected) },
+    new MemoryBookshelfRepository(), () => now);
+  await vm.open(remoteDetailBook('a')); await vm.save();
+  const oldExpiry = vm.shelfMessageExpiresAt, oldRevision = vm.shelfMessageRevision;
+  await vm.open(remoteDetailBook('b')); await vm.save();
+  const currentRevision = vm.shelfMessageRevision;
+  assert.equal(vm.shelfMessageExpiresAt, oldExpiry); assert.notEqual(currentRevision, oldRevision);
+  now = 3000;
+  vm.expireShelfMessage(oldExpiry, oldRevision);
+  assert.ok(vm.shelfMessage); assert.equal(vm.book.source.id, 'b'); assert.equal(vm.saved, true);
+  vm.expireShelfMessage(oldExpiry, currentRevision); assert.equal(vm.shelfMessage, '');
+});
+
+test('expired detail success callbacks cannot remove newer shelf or save errors', async () => {
+  for (const operation of ['read', 'save']) {
+    let now = 0, failRead = false, failSave = false;
+    const shelf = { listBooks: async () => { if (failRead) throw new Error('synthetic-failure'); return []; },
+      addBook: async () => { if (failSave) throw new Error('synthetic-failure'); } };
+    const vm = new BookDetailsViewModel({ getDetails: async selected => new BookDetails(selected) }, shelf, () => now);
+    await vm.open(remoteDetailBook()); await vm.save();
+    const expiry = vm.shelfMessageExpiresAt, revision = vm.shelfMessageRevision;
+    if (operation === 'read') { failRead = true; await vm.refreshShelf(); }
+    else { await vm.refreshShelf(); failSave = true; await vm.save(); }
+    const error = vm.shelfMessage;
+    assert.match(error, /重试/); assert.equal(vm.shelfMessageExpiresAt, 0);
+    now = 4000; vm.expireShelfMessage(expiry, revision); assert.equal(vm.shelfMessage, error);
+  }
+});
+
+test('closing details invalidates its success notice without removing the bookmark', async () => {
+  const book = remoteDetailBook(); let now = 0;
+  const shelf = new MemoryBookshelfRepository();
+  const vm = new BookDetailsViewModel({ getDetails: async selected => new BookDetails(selected) }, shelf, () => now);
+  await vm.open(book); await vm.save();
+  const expiry = vm.shelfMessageExpiresAt, revision = vm.shelfMessageRevision;
+  vm.close();
+  assert.equal(vm.shelfMessageExpiresAt, 0); assert.equal(vm.shelfMessage, '');
+  assert.notEqual(vm.shelfMessageRevision, revision);
+  now = 4000; vm.expireShelfMessage(expiry, revision);
+  assert.equal(vm.shelfMessage, ''); assert.equal((await shelf.listBooks()).length, 1);
+  await vm.open(book); assert.equal(vm.saved, true); assert.equal(vm.shelfMessage, '');
+});
+
 test('details can be saved independently of login or loading failure and duplicate saves preserve existing local files', async () => {
   const book = new Book('details-1', 'Selected book', 'Author', BookFormat.PDF, '', '', false);
   const shelf = new MemoryBookshelfRepository();
