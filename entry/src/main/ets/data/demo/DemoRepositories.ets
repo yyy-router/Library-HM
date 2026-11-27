@@ -1,6 +1,7 @@
 import { AppError } from '../../core/error/AppError';
 import { AccountSession } from '../../domain/model/AccountSession';
 import { Book } from '../../domain/model/Book';
+import { BookDetails } from '../../domain/model/BookDetails';
 import { LocalBookFile } from '../../domain/model/LocalBookFile';
 import { ReadingRecord } from '../../domain/model/ReadingRecord';
 import { AccountRepository } from '../../domain/repository/AccountRepository';
@@ -22,6 +23,10 @@ export class DemoBookCatalogRepository implements BookCatalogRepository {
   }
 
   async getPopular(): Promise<Book[]> { return []; }
+
+  async getDetails(_book: Book): Promise<BookDetails> {
+    throw new AppError('NOT_IMPLEMENTED', '演示书目不提供真实详情。');
+  }
 }
 
 export class DemoBookshelfRepository implements BookshelfRepository {

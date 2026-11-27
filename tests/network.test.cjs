@@ -15,7 +15,8 @@ const { AppContainer } = load('app/AppContainer.js');
 const { AccountSession } = load('domain/model/AccountSession.js');
 const { EapiSessionStore } = load('data/remote/EapiSessionStore.js');
 const { HttpCoverImageRepository } = load('data/remote/HttpCoverImageRepository.js');
-const { BookFormat } = load('domain/model/Book.js');
+const { Book, BookFormat } = load('domain/model/Book.js');
+const { RemoteBookSource } = load('domain/model/RemoteBookSource.js');
 const { readBookText } = load('data/remote/EapiTypes.js');
 const origin = 'https://example.invalid';
 const json = data => new HttpResponse(200, JSON.stringify(data));
@@ -30,6 +31,89 @@ function client(handler, base = origin) {
   const transport = { send: async (request, token) => { calls.push(request); return handler(request, token); } };
   return { calls, config, http: new HttpClient(transport, config), transport };
 }
+
+const detailBook = (id = '1', hash = 'hash-a', base = origin) => new Book(`remote:${id}:${hash}`,
+  `Book ${id}`, 'List author', BookFormat.Unknown, '', '', false, '', 0.75, '', undefined,
+  new RemoteBookSource(base, id, hash, 'https://covers.example.invalid/list.jpg'));
+
+test('anonymous details enrich sparse list metadata and preserve the selected identity without requesting a file', async () => {
+  const calls = [];
+  const selected = detailBook();
+  const app = new AppContainer({ send: async request => {
+    calls.push(request);
+    return json({ success: 1, book: { id: 1, hash: 'hash-a', title: 'Title &amp; subtitle',
+      authors: [{ name: 'Author &amp; Co' }], description: '<p>Full introduction: 1 &lt; 2.</p><p>Second paragraph.</p>',
+      publisher: 'Press &amp; Co', year: 2024, language: '中文', pages: '320', edition: 2,
+      identifier: '9780000000000, B012345678', extension: 'pdf', filesize: 2097152, cover: '/covers/detail.jpg' } });
+  } }, origin);
+  const details = await app.catalog.getDetails(selected);
+  assert.equal(details.book.id, selected.id);
+  assert.equal(details.book.title, 'Title & subtitle');
+  assert.equal(details.book.author, 'Author & Co');
+  assert.equal(details.book.description, 'Full introduction: 1 < 2. Second paragraph.');
+  assert.equal(details.publisher, 'Press & Co'); assert.equal(details.year, '2024');
+  assert.equal(details.pages, '320'); assert.equal(details.edition, '2');
+  assert.equal(details.language, '中文'); assert.equal(details.fileSize, '2.0 MB');
+  assert.equal(details.identifier, '9780000000000, B012345678');
+  assert.equal(details.book.formatLabel, 'PDF'); assert.equal(details.book.hasLocalFile(), false);
+  assert.equal(details.book.source.coverUrl, origin + '/covers/detail.jpg');
+  assert.equal(selected.formatLabel, ''); assert.equal(selected.description, '');
+  assert.equal(calls.length, 1); assert.equal(calls[0].url, origin + '/eapi/book/1/hash-a');
+  assert.equal(calls[0].connectTimeoutMs, 30000); assert.equal(calls[0].readTimeoutMs, 60000);
+  assert.equal(calls[0].headers['remix-userkey'], undefined); assert.equal(calls[0].headers.cookie, undefined);
+});
+
+test('authenticated details use the existing session; absent optional fields stay empty', async () => {
+  let response = { title: 'Only required detail metadata' };
+  const calls = [];
+  const app = new AppContainer({ send: async request => { calls.push(request); return json({ success: 1, book: response }); } }, origin);
+  await app.api.sessions.set('42', 'synthetic-key', new AccountSession('42', 'Reader'));
+  const selected = detailBook();
+  const details = await app.catalog.getDetails(selected);
+  for (const field of ['publisher', 'year', 'language', 'pages', 'edition', 'identifier', 'fileSize']) assert.equal(details[field], '');
+  assert.equal(details.book.source.hash, 'hash-a'); assert.equal(details.book.formatLabel, '');
+  assert.equal(details.book.author, selected.author); assert.equal(details.book.source.coverUrl, selected.source.coverUrl);
+  assert.equal(calls[0].headers['remix-userkey'], 'synthetic-key');
+  response = { title: 'Typed values', year: null, pages: {}, filesize: 'invalid', identifier: [], isbn: '9780000000000' };
+  const typed = await app.catalog.getDetails(selected);
+  assert.equal(typed.year, ''); assert.equal(typed.pages, ''); assert.equal(typed.fileSize, '');
+  assert.equal(typed.identifier, '9780000000000');
+  response = { title: 'Human-readable size', filesizeString: '3.4 MB', filesize: 1 };
+  assert.equal((await app.catalog.getDetails(selected)).fileSize, '3.4 MB');
+});
+
+test('details reject missing or mismatched books and never request a different origin or missing hash', async () => {
+  let payload; let calls = 0;
+  const app = new AppContainer({ send: async () => { calls++; return json({ success: 1, book: payload }); } }, origin);
+  for (const invalid of [undefined, null, [], {}, { id: 1 }, { title: 'Wrong book', id: 2 },
+    { title: 'Wrong hash', id: 1, hash: 'different' }]) {
+    payload = invalid;
+    await assert.rejects(app.catalog.getDetails(detailBook()), { code: 'INVALID_RESPONSE' });
+  }
+  const before = calls;
+  await assert.rejects(app.catalog.getDetails(detailBook('1', '')), { code: 'INVALID_BOOK_SOURCE' });
+  await assert.rejects(app.catalog.getDetails(detailBook('1', 'hash-a', 'https://other.example.invalid')), { code: 'INVALID_BOOK_SOURCE' });
+  assert.equal(calls, before);
+});
+
+test('anonymous details distinguish a login requirement and cannot invalidate a newly published session', async () => {
+  const pending = deferred(), started = deferred();
+  let response = json({ success: 0, error: 'Please login' });
+  const app = new AppContainer({ send: async () => response }, origin);
+  await assert.rejects(app.catalog.getDetails(detailBook()), { code: 'AUTH_REQUIRED' });
+  assert.equal(app.api.sessions.display, undefined);
+  const race = new AppContainer({ send: async () => { started.resolve(); return pending.promise; } }, origin);
+  const request = race.catalog.getDetails(detailBook());
+  await started.promise;
+  await race.api.sessions.set('43', 'synthetic-new-key', new AccountSession('43', 'New reader'));
+  pending.resolve(new HttpResponse(401, ''));
+  await assert.rejects(request, { code: 'REQUEST_SUPERSEDED' });
+  assert.equal(race.api.sessions.display.accountId, '43');
+  await app.api.sessions.set('42', 'synthetic-key', new AccountSession('42', 'Reader'));
+  response = json({ success: 0, error: 'Invalid credentials' });
+  await assert.rejects(app.catalog.getDetails(detailBook()), { code: 'AUTH_REQUIRED' });
+  assert.equal(app.api.sessions.display, undefined);
+});
 
 // Compiles the real SDK adapter source, injecting only SDK test doubles. Native compilation remains required.
 function native(relative, kits) {
@@ -261,6 +345,10 @@ test('production repositories share real HTTP login/profile/search/recommendatio
   assert.equal(recommended[0].id, results[0].id);
   await app.api.getBookDetails(results[0]);
   assert.equal(await app.api.getDownloadLink(results[0]), 'https://files.example.invalid/book.epub');
+  const detailRequest = calls.find(request => request.url.endsWith('/eapi/book/1/hash-a'));
+  assert.equal(detailRequest.connectTimeoutMs, 30000); assert.equal(detailRequest.readTimeoutMs, 60000);
+  const searchRequest = calls.find(request => request.url.endsWith('/search'));
+  assert.equal(searchRequest.connectTimeoutMs, 10000); assert.equal(searchRequest.readTimeoutMs, 30000);
   assert.equal(calls[0].headers['remix-userkey'], undefined);
   assert.ok(calls.slice(1).every(request => request.headers['remix-userkey'] === 'synthetic-key'));
   assert.ok(calls.every(request => request.headers.source === 'android'));

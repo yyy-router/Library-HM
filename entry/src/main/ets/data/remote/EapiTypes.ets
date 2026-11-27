@@ -17,6 +17,15 @@ export interface EapiBook {
   authors?: string | EapiAuthor[];
   extension?: string;
   description?: string;
+  publisher?: string;
+  year?: string | number;
+  language?: string;
+  pages?: string | number;
+  edition?: string | number;
+  identifier?: string | number;
+  isbn?: string | number;
+  filesize?: string | number;
+  filesizeString?: string;
   cover?: string;
   url?: string;
   href?: string;
