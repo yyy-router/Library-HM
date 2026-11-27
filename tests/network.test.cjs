@@ -22,6 +22,12 @@ const { HttpError, HttpErrorCode } = load('core/network/HttpError.js');
 
 const { CancellationToken } = load('core/network/CancellationToken.js');
 
+const { MemorySessionVault } = load('core/security/SessionVault.js');
+
+const { AccountSession } = load('domain/model/AccountSession.js');
+
+const { EapiSessionStore } = load('data/remote/EapiSessionStore.js');
+
 const origin = 'https://example.invalid';
 
 const json = data => new HttpResponse(200, JSON.stringify(data));
@@ -146,4 +152,38 @@ test('binary responses keep their bytes and an unexpected text body cannot masqu
   raw = '<html>challenge</html>';
   await assert.rejects(http.get('/challenge', { responseType: HttpResponseType.Binary }), { code: HttpErrorCode.InvalidResponse });
   assert.deepEqual(n.tasks.map(task => task.destroyed), [1, 1]);
+});
+
+test('sessions are origin-bound and logout wins over a pending credential save', async () => {
+  const vault = new MemorySessionVault();
+  await new EapiSessionStore(vault, origin).set('42', 'synthetic-key', new AccountSession('42', 'Reader'));
+  const other = new EapiSessionStore(vault, 'https://other.example.invalid');
+  await other.restore(); assert.equal(other.display, undefined); assert.equal(await vault.read(), undefined);
+  let finish;
+  const slow = { read: async () => undefined, write: () => new Promise(resolve => { finish = resolve; }), clear: () => vault.clear() };
+  const sessions = new EapiSessionStore(slow, origin);
+  const save = sessions.set('42', 'synthetic-key', new AccountSession('42', 'Reader'));
+  const rejected = assert.rejects(save, { code: 'REQUEST_SUPERSEDED' });
+  await Promise.resolve(); const logout = sessions.clear(); finish();
+  await rejected; await logout; assert.equal(sessions.display, undefined);
+});
+
+test('ASSET adapter uses device-unlocked storage, updates existing assets and propagates sanitized storage errors', async () => {
+  const Tag = { ALIAS: 1, SECRET: 2, ACCESSIBILITY: 3, RETURN_TYPE: 4 };
+  let stored; let fail = false; let added;
+  const asset = { Tag, ReturnType: { ALL: 0 }, Accessibility: { DEVICE_UNLOCKED: 2 },
+    query: async () => { if (fail) throw { code: 24000005 }; return stored ? [new Map([[Tag.SECRET, stored]])] : []; },
+    add: async values => { if (stored) throw { code: 24000003 }; added = values; stored = values.get(Tag.SECRET); },
+    update: async (_query, values) => { stored = values.get(Tag.SECRET); }, remove: async () => { stored = undefined; } };
+  const util = { TextEncoder: class { encodeInto(value) { return new TextEncoder().encode(value); } },
+    TextDecoder: { create: () => ({ decodeToString: value => new TextDecoder('utf-8', { fatal: true }).decode(value) }) } };
+  const { AssetSessionVault } = native('platform/security/AssetSessionVault.ets',
+    { '@kit.AssetStoreKit': { asset }, '@kit.ArkTS': { util } });
+  const vault = new AssetSessionVault();
+  assert.equal(await vault.read(), undefined);
+  await vault.write('synthetic-first'); assert.equal(added.get(Tag.ACCESSIBILITY), 2);
+  await vault.write('synthetic-second'); assert.equal(await vault.read(), 'synthetic-second');
+  fail = true; await assert.rejects(vault.read(), { code: 'SESSION_STORAGE' });
+  fail = false; await vault.clear(); assert.equal(await vault.read(), undefined);
+  await assert.rejects(vault.write('x'.repeat(1025)), { code: 'SESSION_STORAGE' });
 });
