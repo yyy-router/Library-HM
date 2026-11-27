@@ -16,6 +16,7 @@ const { BookDetailsViewModel } = load('features/details/BookDetailsViewModel.js'
 const { BookDetails } = load('domain/model/BookDetails.js');
 const { MemoryBookshelfRepository } = load('data/local/MemoryBookshelfRepository.js');
 const { RemoteBookSource } = load('domain/model/RemoteBookSource.js');
+const { BookCoverViewModel } = load('shared/components/BookCoverViewModel.js');
 const { RecommendationState } = load('features/home/HomeViewModel.js');
 const { ShelfFilter, ShelfSort } = load('domain/model/ShelfEntry.js');
 const { AccountSession } = load('domain/model/AccountSession.js');
@@ -43,6 +44,44 @@ const remoteDetailBook = (id = 'a', url = 'https://covers.example.invalid/a.jpg'
   new Book(`remote:${id}:hash`, `Book ${id}`, 'Author', BookFormat.Unknown, '', '', false, '', 0.75, '', undefined,
     new RemoteBookSource(origin, id, 'hash', url));
 const flushCover = () => new Promise(resolve => setImmediate(resolve));
+
+test('cover metadata updates preserve the current image and a replacement failure keeps the same book cover', async () => {
+  const first = detailDeferred(), replacement = detailDeferred();
+  let calls = 0;
+  const repository = { getCached: () => undefined, load: () => ++calls === 1 ? first.promise : replacement.promise };
+  const vm = new BookCoverViewModel();
+  vm.update(remoteDetailBook(), repository);
+  assert.equal(calls, 1);
+  vm.update(remoteDetailBook(), repository);
+  assert.equal(calls, 1, 'a metadata update must not replace a pending request');
+  first.resolve('cover-a'); await flushCover();
+  assert.equal(vm.image, 'cover-a');
+  vm.update(remoteDetailBook().asBookmark(), repository);
+  assert.equal(vm.image, 'cover-a'); assert.equal(calls, 1);
+  vm.update(remoteDetailBook('a', 'https://covers.example.invalid/new-a.jpg'), repository);
+  assert.equal(vm.image, 'cover-a'); assert.equal(calls, 2);
+  replacement.reject(new Error('Unavailable replacement')); await flushCover();
+  assert.equal(vm.image, 'cover-a');
+});
+
+test('cached covers display synchronously and late results never replace another book or a closed cover', async () => {
+  const late = detailDeferred(); let calls = 0;
+  const repository = { getCached: url => url.endsWith('/a.jpg') ? 'cached-a' : undefined,
+    load: () => { calls++; return late.promise; } };
+  const vm = new BookCoverViewModel();
+  vm.update(remoteDetailBook(), repository);
+  assert.equal(vm.image, 'cached-a'); assert.equal(calls, 0);
+  vm.update(remoteDetailBook('b', 'https://covers.example.invalid/b.jpg'), repository);
+  assert.equal(vm.image, ''); assert.equal(calls, 1);
+  vm.update(remoteDetailBook(), repository);
+  assert.equal(vm.image, 'cached-a');
+  late.resolve('late-b'); await flushCover(); assert.equal(vm.image, 'cached-a');
+  const pending = detailDeferred();
+  const closed = new BookCoverViewModel();
+  closed.update(remoteDetailBook('c'), { getCached: () => undefined, load: () => pending.promise });
+  closed.close(); pending.resolve('late-c'); await flushCover();
+  assert.equal(closed.image, '');
+});
 
 test('reopening recent details displays cached content immediately while refreshing shelf and preserving current local state', async () => {
   let calls = 0, shelfCalls = 0;
