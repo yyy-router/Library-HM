@@ -69,6 +69,12 @@ export struct HomePage {
   }
 
   @Builder
+  navigationClearance() {
+    // 留白只在列表末尾，滚动过程中内容可延伸到悬浮导航下方。
+    Row().width('100%').height(80)
+  }
+
+  @Builder
   recommendationState() {
     Column({ space: 15 }) {
       if (this.viewModel.recommendationState === RecommendationState.Loading) {
@@ -131,7 +137,7 @@ export struct HomePage {
           .margin({ bottom: 12 })
       }
       if ((this.viewModel.searched ? this.viewModel.results : this.viewModel.recommendations).length > 0) {
-        WaterFlow() {
+        WaterFlow({ footer: this.navigationClearance }) {
           ForEach(this.viewModel.searched ? this.viewModel.results : this.viewModel.recommendations, (book: Book) => {
             FlowItem() {
               CatalogCard({ book: book, cardWidth: this.cardWidth(), actionEnabled: !this.viewModel.busy, coverImages: this.coverImages,
@@ -162,6 +168,7 @@ export struct HomePage {
             }
           }
           .width('100%')
+          .padding({ bottom: 80 })
         }
         .layoutWeight(1)
         .width('100%')
