@@ -20,6 +20,8 @@ export class DemoBookCatalogRepository implements BookCatalogRepository {
   async getRecommended(): Promise<Book[]> {
     throw new AppError('NOT_IMPLEMENTED', '推荐服务尚未接入。');
   }
+
+  async getPopular(): Promise<Book[]> { return []; }
 }
 
 export class DemoBookshelfRepository implements BookshelfRepository {

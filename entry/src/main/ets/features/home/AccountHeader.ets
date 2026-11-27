@@ -83,7 +83,6 @@ export struct AccountHeader {
   build() {
     Row({ space: 20 }) {
       Blank()
-      Text('演示模式').fontSize(12).fontColor(ReaderTheme.MUTED)
       Button({ type: ButtonType.Normal }) {
         Row({ space: 9 }) {
           if (this.viewModel.session) {

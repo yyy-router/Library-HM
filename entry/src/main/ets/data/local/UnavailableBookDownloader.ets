@@ -5,6 +5,6 @@ import { BookDownloader } from '../../domain/service/BookDownloader';
 
 export class UnavailableBookDownloader implements BookDownloader {
   async download(_book: Book, _onProgress: (progress: number) => void): Promise<LocalBookFile> {
-    throw new AppError('NOT_IMPLEMENTED', '下载服务尚未接入，书籍已收藏，但尚无本地文件可供阅读。');
+    throw new AppError('NOT_IMPLEMENTED', '文件下载与保存尚未接入，收藏的书籍需下载后阅读。');
   }
 }

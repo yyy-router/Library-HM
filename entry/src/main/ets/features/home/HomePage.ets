@@ -9,15 +9,14 @@ import { HomeViewModel, RecommendationState } from './HomeViewModel';
 export struct HomePage {
   @ObjectLink viewModel: HomeViewModel;
   @Prop pageWidth: number = 1000;
-  onLogin: () => void = () => {};
 
   private columns(): number {
     return this.pageWidth > 1100 ? 4 : this.pageWidth > 600 ? 3 : 2;
   }
 
   private caption(): string {
-    if (this.viewModel.searched) return `${this.viewModel.results.length} 本演示搜索结果 · 本地占位数据`;
-    if (!this.viewModel.session) return '登录后，查看为你推荐的图书。';
+    if (this.viewModel.searched) return `${this.viewModel.results.length} 本搜索结果`;
+    if (!this.viewModel.session) return '看看大家最近在读什么。';
     return '根据你的阅读发现好书。';
   }
 
@@ -59,35 +58,21 @@ export struct HomePage {
   @Builder
   recommendationState() {
     Column({ space: 15 }) {
-      if (this.viewModel.recommendationState === RecommendationState.Guest) {
-        Text('登录，发现为你推荐的好书')
-          .fontSize(20)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(ReaderTheme.INK)
-        Text('登录后获取你的推荐列表，也可以先搜索感兴趣的书。')
-          .fontSize(14)
-          .fontColor(ReaderTheme.SECONDARY)
-          .textAlign(TextAlign.Center)
-        Button('登录查看推荐', { type: ButtonType.Normal })
-          .height(46)
-          .fontSize(14)
-          .backgroundColor(ReaderTheme.BLUE)
-          .fontColor(ReaderTheme.ON_ACCENT)
-          .borderRadius(12)
-          .margin({ top: 8 })
-          .onClick(() => this.onLogin())
-      } else if (this.viewModel.recommendationState === RecommendationState.Loading) {
+      if (this.viewModel.recommendationState === RecommendationState.Loading) {
         LoadingProgress().width(28).height(28).color(ReaderTheme.BLUE)
-        Text('正在获取推荐').fontSize(14).fontColor(ReaderTheme.SECONDARY)
+        Text(this.viewModel.session ? '正在获取推荐' : '正在获取热门图书')
+          .fontSize(14).fontColor(ReaderTheme.SECONDARY)
       } else {
         Text(this.viewModel.recommendationState === RecommendationState.Unconfigured ? '推荐服务尚未接入' :
-          this.viewModel.recommendationState === RecommendationState.Error ? '暂时无法获取推荐' : '暂时没有推荐图书')
+          this.viewModel.recommendationState === RecommendationState.Error ? '暂时无法获取图书' :
+          this.viewModel.session ? '暂时没有推荐图书' : '暂时没有热门图书')
           .fontSize(20)
           .fontColor(ReaderTheme.INK)
-        Text('可以先搜索书籍，或前往书架继续阅读。')
+        Text(this.viewModel.recommendationMessage || '可以先搜索书籍，或前往书架继续阅读。')
           .fontSize(14)
           .fontColor(ReaderTheme.SECONDARY)
-        if (this.viewModel.recommendationState === RecommendationState.Error) {
+        if (this.viewModel.recommendationState === RecommendationState.Error ||
+          this.viewModel.recommendationState === RecommendationState.Ready) {
           Button('重试').backgroundColor(ReaderTheme.BLUE).fontColor(ReaderTheme.ON_ACCENT)
             .onClick(() => { this.viewModel.loadRecommendations(); })
         }
@@ -107,7 +92,7 @@ export struct HomePage {
         .padding({ top: this.pageWidth > 600 ? 34 : 20, bottom: 38 })
       Row() {
         Column({ space: 7 }) {
-          Text(this.viewModel.searched ? '搜索结果' : '为你推荐')
+          Text(this.viewModel.searched ? '搜索结果' : this.viewModel.session ? '为你推荐' : '热门图书')
             .fontSize(23)
             .fontWeight(FontWeight.Bold)
             .fontColor(ReaderTheme.INK)
@@ -116,7 +101,7 @@ export struct HomePage {
         .alignItems(HorizontalAlign.Start)
         .layoutWeight(1)
         if (this.viewModel.searched) {
-          Button('返回推荐', { type: ButtonType.Normal })
+          Button(this.viewModel.session ? '返回推荐' : '返回热门', { type: ButtonType.Normal })
             .fontSize(13)
             .fontColor(ReaderTheme.BLUE)
             .backgroundColor(ReaderTheme.SURFACE)
@@ -139,7 +124,7 @@ export struct HomePage {
               CatalogCard({ book: book, actionEnabled: !this.viewModel.busy,
                 onSave: (selected: Book) => { this.viewModel.addToShelf(selected); } })
             }
-          }, (book: Book) => book.id)
+          }, (book: Book) => `${this.viewModel.searched ? 'search' : 'discovery'}:${this.viewModel.listRevision}:${book.id}`)
         }
         .columnsTemplate('1fr '.repeat(this.columns()).trim())
         .columnsGap(this.pageWidth > 600 ? 22 : 14)

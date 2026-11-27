@@ -24,9 +24,15 @@ const { CancellationToken } = load('core/network/CancellationToken.js');
 
 const { MemorySessionVault } = load('core/security/SessionVault.js');
 
+const { AppContainer } = load('app/AppContainer.js');
+
 const { AccountSession } = load('domain/model/AccountSession.js');
 
 const { EapiSessionStore } = load('data/remote/EapiSessionStore.js');
+
+const { BookFormat } = load('domain/model/Book.js');
+
+const { readBookText } = load('data/remote/EapiTypes.js');
 
 const origin = 'https://example.invalid';
 
@@ -60,6 +66,48 @@ function nativeHttp(handler) {
   const { HarmonyHttpTransport } = native('platform/network/HarmonyHttpTransport.ets', { '@kit.NetworkKit': { http: kit } });
   return { tasks, kit, transport: new HarmonyHttpTransport() };
 }
+
+test('anonymous popular catalog preserves sparse metadata without credentials; recommendations still require login', async () => {
+  const calls = [];
+  const app = new AppContainer({ send: async request => {
+    calls.push(request);
+    return json({ success: 1, books: [{ id: 7, title: 'Sparse book', hash: 'aa', cover: '//covers.example.invalid/7.jpg' },
+      { id: 8, title: 'Other format', extension: 'mobi', url: '/book/8/bb/name' },
+      { id: 9, title: 'No download identifier' }, { id: 7, title: 'Duplicate' }] });
+  } }, origin);
+  const books = await app.catalog.getPopular();
+  assert.deepEqual(books.map(value => value.source.id), ['7', '8', '9']);
+  assert.equal(books[0].format, BookFormat.Unknown);
+  assert.equal(books[0].formatLabel, '');
+  assert.equal(books[0].source.coverUrl, 'https://covers.example.invalid/7.jpg');
+  assert.equal(books[1].formatLabel, 'MOBI'); assert.equal(books[1].source.hash, 'bb');
+  assert.throws(() => app.api.bookPath(books[2]), { code: 'INVALID_BOOK_SOURCE' });
+  await assert.rejects(app.catalog.getRecommended(), { code: 'AUTH_REQUIRED' });
+  assert.equal(calls.length, 1); assert.equal(calls[0].url, origin + '/eapi/book/most-popular');
+  assert.equal(calls[0].headers['remix-userkey'], undefined); assert.equal(calls[0].headers.cookie, undefined);
+});
+
+test('catalog display decodes HTML entities, strips description markup and preserves valid Unicode', () => {
+  assert.equal(readBookText('Author &amp; Author'), 'Author & Author');
+  assert.equal(readBookText('&lt;p&gt;Text&nbsp;&amp;amp; more&lt;/p&gt;<p>Next</p>', true), 'Text & more Next');
+  assert.equal(readBookText('&#20013;&#x6587; &#x1F4DA;'), '中文 📚');
+  assert.equal(readBookText('&#x110000; &#55296; &unknown;'), '&#x110000; &#55296; &unknown;');
+  assert.equal(readBookText('A &lt; B'), 'A < B');
+});
+
+test('catalog differentiates truly empty lists from malformed nonempty responses and keeps sparse recommendations', async () => {
+  let payload = [];
+  const vault = new MemorySessionVault();
+  const app = new AppContainer({ send: async () => json({ success: 1, books: payload }) }, origin, vault);
+  await app.api.sessions.set('42', 'synthetic-key', new AccountSession('42', 'Reader'));
+  assert.deepEqual(await app.catalog.getRecommended(), []);
+  payload = [{ id: 4, title: 'Only required metadata' }];
+  assert.equal((await app.catalog.getRecommended()).length, 1);
+  payload = [{ hash: 'aa' }, null, 'unexpected'];
+  await assert.rejects(app.catalog.getRecommended(), { code: 'INVALID_RESPONSE' });
+  payload = undefined;
+  await assert.rejects(app.catalog.getRecommended(), { code: 'INVALID_RESPONSE' });
+});
 
 test('HTTP encodes repeated query/form keys, JSON bodies and merges headers without mutating defaults', async () => {
   const c = client(async () => json({ success: 1 }));
@@ -154,6 +202,64 @@ test('binary responses keep their bytes and an unexpected text body cannot masqu
   assert.deepEqual(n.tasks.map(task => task.destroyed), [1, 1]);
 });
 
+test('production repositories share real HTTP login/profile/search/recommendation/detail/file-link requests', async () => {
+  const calls = [], vault = new MemorySessionVault();
+  const app = new AppContainer({ send: async request => {
+    calls.push(request);
+    if (request.url.endsWith('/rpc.php')) return json({ errors: [], response: { user_id: 42, user_key: 'synthetic-key' } });
+    if (request.url.endsWith('/profile')) return json({ success: 1, user: { id: 42, name: 'Reader', downloads_limit: 10, downloads_today: 3 } });
+    if (request.url.endsWith('/file')) return json({ success: 1, file: { downloadLink: 'https://files.example.invalid/book.epub' } });
+    if (/\/eapi\/book\/1\//.test(request.url)) return json({ success: 1, book: book() });
+    return json({ success: 1, books: [book()] });
+  } }, origin, vault);
+  assert.deepEqual(await app.bookshelf.listBooks(), []);
+  assert.equal(await app.account.getSession(), undefined); assert.equal(calls.length, 0);
+  const session = await app.account.signIn('reader@example.invalid', 'synthetic-password');
+  assert.equal(session.displayName, 'Reader'); assert.equal(session.remainingDownloads, 7);
+  assert.ok(!JSON.stringify(session).includes('synthetic-key'));
+  assert.ok(!(await vault.read()).includes('synthetic-password'));
+  const results = await app.catalog.search('中文'); const recommended = await app.catalog.getRecommended();
+  assert.equal(results[0].isDemo, false); assert.equal(results[0].source.id, '1');
+  assert.equal(results[0].asBookmark().source.hash, 'hash-a'); assert.equal(results[0].hasLocalFile(), false);
+  assert.equal(recommended[0].id, results[0].id);
+  await app.api.getBookDetails(results[0]);
+  assert.equal(await app.api.getDownloadLink(results[0]), 'https://files.example.invalid/book.epub');
+  assert.equal(calls[0].headers['remix-userkey'], undefined);
+  assert.ok(calls.slice(1).every(request => request.headers['remix-userkey'] === 'synthetic-key'));
+  assert.ok(calls.every(request => request.headers.source === 'android'));
+  assert.match(calls.find(r => r.url.endsWith('/search')).body, /extensions%5B%5D=epub&extensions%5B%5D=pdf/);
+  await app.bookshelf.addBook(results[0].asBookmark()); await app.account.signOut();
+  assert.equal((await app.bookshelf.listBooks()).length, 1); assert.equal(await vault.read(), undefined);
+});
+
+test('saved sessions restore and validate on startup; temporary network failures retain the vault', async () => {
+  const vault = new MemorySessionVault();
+  const initial = new EapiSessionStore(vault, origin);
+  await initial.set('42', 'synthetic-key', new AccountSession('42', 'Reader'));
+  const app = new AppContainer({ send: async () => { throw new HttpError(HttpErrorCode.Timeout); } }, origin, vault);
+  await assert.rejects(app.account.getSession(), { code: HttpErrorCode.Timeout });
+  assert.ok(await vault.read());
+  const restored = new AppContainer({ send: async () => json({ success: 1, user: { id: 42, name: 'Restored' } }) }, origin, vault);
+  assert.equal((await restored.account.getSession()).displayName, 'Restored');
+  assert.equal((await restored.account.getSession()).remainingDownloads, undefined);
+});
+
+test('missing/invalid credentials, HTTP auth failure and business failure never fabricate authentication or recommendations', async () => {
+  const vault = new MemorySessionVault(); let response = json({ errors: [], response: {} });
+  const app = new AppContainer({ send: async () => response }, origin, vault);
+  await assert.rejects(app.catalog.search('query'), { code: 'AUTH_REQUIRED' });
+  await assert.rejects(app.account.signIn('x@example.invalid', 'synthetic-password'), { code: 'LOGIN_FAILED' });
+  assert.equal(await vault.read(), undefined);
+  await app.api.sessions.set('42', 'synthetic-key', new AccountSession('42', 'Reader'));
+  response = json({ success: 0, error: 'Please login' });
+  await assert.rejects(app.catalog.getRecommended(), { code: 'AUTH_REQUIRED' });
+  assert.equal(await vault.read(), undefined);
+  await app.api.sessions.set('42', 'synthetic-key', new AccountSession('42', 'Reader'));
+  response = new HttpResponse(401, 'sensitive');
+  await assert.rejects(app.account.getSession(), { code: 'AUTH_REQUIRED' });
+  assert.equal(await vault.read(), undefined);
+});
+
 test('sessions are origin-bound and logout wins over a pending credential save', async () => {
   const vault = new MemorySessionVault();
   await new EapiSessionStore(vault, origin).set('42', 'synthetic-key', new AccountSession('42', 'Reader'));
@@ -166,6 +272,42 @@ test('sessions are origin-bound and logout wins over a pending credential save',
   const rejected = assert.rejects(save, { code: 'REQUEST_SUPERSEDED' });
   await Promise.resolve(); const logout = sessions.clear(); finish();
   await rejected; await logout; assert.equal(sessions.display, undefined);
+});
+
+test('403 with an explicit login error clears the vault while an HTML access challenge preserves it', async () => {
+  const vault = new MemorySessionVault();
+  let response = new HttpResponse(403, '<html>access challenge</html>');
+  const app = new AppContainer({ send: async () => response }, origin, vault);
+  await app.api.sessions.set('42', 'synthetic-key', new AccountSession('42', 'Reader'));
+  await assert.rejects(app.catalog.getRecommended(), { code: HttpErrorCode.Status, status: 403 });
+  assert.ok(await vault.read());
+  response = new HttpResponse(403, JSON.stringify({ success: 0, error: 'Please login' }));
+  await assert.rejects(app.catalog.getRecommended(), { code: 'AUTH_REQUIRED' });
+  assert.equal(await vault.read(), undefined);
+});
+
+test('a stale auth failure cannot erase a newer account session', async () => {
+  let fail;
+  const vault = new MemorySessionVault();
+  const app = new AppContainer({ send: () => new Promise((_resolve, reject) => { fail = reject; }) }, origin, vault);
+  await app.api.sessions.set('42', 'synthetic-old-key', new AccountSession('42', 'Old'));
+  const pending = app.api.get('/eapi/user/profile');
+  await Promise.resolve(); await Promise.resolve();
+  await app.api.sessions.set('43', 'synthetic-new-key', new AccountSession('43', 'New'));
+  fail(new HttpError(HttpErrorCode.Status, 401));
+  await assert.rejects(pending, { status: 401 });
+  assert.equal(app.api.sessions.display.accountId, '43');
+  assert.ok((await vault.read()).includes('synthetic-new-key'));
+});
+
+test('a failed secure save never reports a successful login, and malformed saved credentials are discarded', async () => {
+  const vault = { read: async () => undefined, clear: async () => {},
+    write: async () => { throw Object.assign(new Error('secure save failed'), { code: 'SESSION_STORAGE' }); } };
+  const app = new AppContainer({ send: async () => json({ errors: [], response: { user_id: 42, user_key: 'synthetic-key' } }) }, origin, vault);
+  await assert.rejects(app.account.signIn('reader@example.invalid', 'synthetic-password'), { code: 'SESSION_STORAGE' });
+  assert.equal(app.api.sessions.display, undefined);
+  const memory = new MemorySessionVault(); await memory.write('{broken');
+  await new EapiSessionStore(memory, origin).restore(); assert.equal(await memory.read(), undefined);
 });
 
 test('ASSET adapter uses device-unlocked storage, updates existing assets and propagates sanitized storage errors', async () => {

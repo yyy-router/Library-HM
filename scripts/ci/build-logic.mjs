@@ -16,6 +16,8 @@ let count = 0;
 for (const file of await walk(sourceRoot)) {
   const relative = path.relative(sourceRoot, file);
   const normalized = relative.split(path.sep).join('/');
+  // Native composition imports NetworkKit; it is verified by native compilation and adapter contract tests.
+  if (normalized.startsWith('app/platform/')) continue;
   if (!file.endsWith('.ets') || !(/^(app|core|domain|data)\//.test(normalized) || normalized.endsWith('ViewModel.ets'))) continue;
   const source = await readFile(file, 'utf8');
   if (/@(?:Entry|Component)\b|from\s+['"]@(?:kit\/|ohos\.)/.test(source)) throw new Error(`${normalized}: SDK/UI code must not enter the pure-logic test build`);

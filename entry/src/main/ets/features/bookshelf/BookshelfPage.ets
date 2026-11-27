@@ -164,7 +164,7 @@ export struct BookshelfPage {
           }
           .width('100%')
         }
-        Text('演示书籍与阅读进度仅在本次运行中保留。')
+        Text('书架与阅读记录仅在本次运行中保留。')
           .fontSize(12)
           .fontColor(ReaderTheme.MUTED)
           .margin({ top: 6, bottom: 20 })

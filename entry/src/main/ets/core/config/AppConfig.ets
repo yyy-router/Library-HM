@@ -1,4 +1,4 @@
 export class AppConfig {
   static readonly APP_NAME: string = 'Library-HM';
-  static readonly DEMO_MODE: boolean = true;
+  static readonly API_BASE_URL: string = 'https://z-lib.gd';
 }

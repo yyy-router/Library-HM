@@ -1,4 +1,4 @@
-import { appContainer } from '../app/AppContainer';
+import { appContainer } from '../app/platform/NativeAppContainer';
 import { Book } from '../domain/model/Book';
 import { BookshelfPage } from '../features/bookshelf/BookshelfPage';
 import { BookshelfViewModel } from '../features/bookshelf/BookshelfViewModel';
@@ -98,8 +98,7 @@ struct Index {
         }
         Column() {
           if (this.activeTab === 0) {
-            HomePage({ viewModel: this.homeViewModel, pageWidth: this.pageWidth,
-              onLogin: () => { this.loginController.open(); } })
+            HomePage({ viewModel: this.homeViewModel, pageWidth: this.pageWidth })
           } else {
             BookshelfPage({ viewModel: this.bookshelfViewModel, pageWidth: this.pageWidth,
               onOpenBook: (book: Book) => { this.openBook(book); } })
