@@ -12,6 +12,7 @@ export struct HomePage {
   @Prop pageWidth: number = 1000;
   @State private flowWidth: number = 0;
   coverImages: CoverImageRepository | undefined = undefined;
+  onOpenDetails: (book: Book) => void = () => {};
 
   private contentWidth(): number {
     return this.flowWidth > 0 ? this.flowWidth : Math.min(this.pageWidth, 1280) - (this.pageWidth > 840 ? 96 : 48);
@@ -141,6 +142,7 @@ export struct HomePage {
           ForEach(this.viewModel.searched ? this.viewModel.results : this.viewModel.recommendations, (book: Book) => {
             FlowItem() {
               CatalogCard({ book: book, cardWidth: this.cardWidth(), actionEnabled: !this.viewModel.busy, coverImages: this.coverImages,
+                onOpen: (selected: Book) => this.onOpenDetails(selected),
                 onSave: (selected: Book) => { this.viewModel.addToShelf(selected); } })
             }
             // FlowItem 子组件的百分比基准在设备上可能仍是整个 WaterFlow，必须传入明确列宽。

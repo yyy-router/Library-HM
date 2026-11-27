@@ -12,6 +12,10 @@ const { DemoFileImporter } = load('data/demo/DemoFileImporter.js');
 const { HomeViewModel } = load('features/home/HomeViewModel.js');
 const { BookshelfViewModel } = load('features/bookshelf/BookshelfViewModel.js');
 const { ReaderViewModel } = load('features/reader/ReaderViewModel.js');
+const { BookDetailsViewModel } = load('features/details/BookDetailsViewModel.js');
+const { BookDetails } = load('domain/model/BookDetails.js');
+const { MemoryBookshelfRepository } = load('data/local/MemoryBookshelfRepository.js');
+const { RemoteBookSource } = load('domain/model/RemoteBookSource.js');
 const { RecommendationState } = load('features/home/HomeViewModel.js');
 const { ShelfFilter, ShelfSort } = load('domain/model/ShelfEntry.js');
 const { AccountSession } = load('domain/model/AccountSession.js');
@@ -28,6 +32,168 @@ function createDemoApp() {
 
 // These are adapter contract fixtures. They do not claim that Node wrote a HarmonyOS file.
 const localFile = () => new LocalBookFile('file:///data/storage/el2/base/files/test.epub', 2048);
+
+function detailDeferred() {
+  let resolve, reject;
+  const promise = new Promise((success, failure) => { resolve = success; reject = failure; });
+  return { promise, resolve, reject };
+}
+
+const remoteDetailBook = (id = 'a', url = 'https://covers.example.invalid/a.jpg', origin = 'https://example.invalid') =>
+  new Book(`remote:${id}:hash`, `Book ${id}`, 'Author', BookFormat.Unknown, '', '', false, '', 0.75, '', undefined,
+    new RemoteBookSource(origin, id, 'hash', url));
+const flushCover = () => new Promise(resolve => setImmediate(resolve));
+
+test('reopening recent details displays cached content immediately while refreshing shelf and preserving current local state', async () => {
+  let calls = 0, shelfCalls = 0;
+  const book = remoteDetailBook();
+  const vm = new BookDetailsViewModel({ getDetails: async selected => { calls++; return new BookDetails(selected, 'Publisher'); } },
+    { listBooks: async () => { shelfCalls++; return []; } });
+  await vm.open(book); vm.close();
+  const again = vm.open(book.withLocalFile(localFile()));
+  assert.equal(vm.loading, false); assert.equal(vm.details.publisher, 'Publisher');
+  assert.equal(vm.book.hasLocalFile(), true); assert.equal(calls, 1);
+  await again; assert.equal(shelfCalls, 2);
+  await vm.open(remoteDetailBook('a', 'https://covers.example.invalid/a.jpg', 'https://other.example.invalid'));
+  assert.equal(calls, 2, 'origins must have separate detail caches');
+});
+
+test('opening details finishes only after both content and shelf state are ready', async () => {
+  const content = detailDeferred(), shelf = detailDeferred();
+  const book = remoteDetailBook(); let complete = false;
+  const vm = new BookDetailsViewModel({ getDetails: () => content.promise }, { listBooks: () => shelf.promise });
+  const opening = vm.open(book).then(() => { complete = true; });
+  assert.equal(vm.loading, true); assert.equal(vm.shelfLoading, true);
+  content.resolve(new BookDetails(book, 'Publisher')); await flushCover();
+  assert.equal(vm.loading, false); assert.ok(vm.details); assert.equal(complete, false);
+  shelf.resolve([book]); await opening;
+  assert.equal(complete, true); assert.equal(vm.saved, true); assert.equal(vm.shelfLoading, false);
+});
+
+test('successful detail completion and cache hits never become errors while a loading overlay exits', async () => {
+  const content = detailDeferred(), shelf = detailDeferred();
+  const book = remoteDetailBook();
+  const vm = new BookDetailsViewModel({ getDetails: () => content.promise }, { listBooks: () => shelf.promise });
+  assert.equal(vm.hasLoadError, false);
+  const opening = vm.open(book);
+  assert.equal(vm.hasLoadError, false);
+  content.resolve(new BookDetails(book, 'Publisher')); await flushCover();
+  assert.equal(vm.loading, false); assert.equal(vm.shelfLoading, true);
+  assert.equal(vm.hasLoadError, false, 'content completion before shelf state must not show an error');
+  shelf.resolve([]); await opening;
+  assert.equal(vm.hasLoadError, false, 'a retained loading overlay must still render its spinner after success');
+  vm.close(); assert.equal(vm.hasLoadError, false);
+  const cached = vm.open(book);
+  assert.equal(vm.loading, false); assert.equal(vm.hasLoadError, false);
+  await cached;
+});
+
+test('only actual detail failures enable the error panel; retry and cancellation clear it', async () => {
+  const book = remoteDetailBook(); let response = Promise.reject(new AppError('HTTP_TIMEOUT', '请求超时'));
+  const vm = new BookDetailsViewModel({ getDetails: () => response }, new MemoryBookshelfRepository());
+  await vm.open(book);
+  assert.equal(vm.hasLoadError, true); assert.equal(vm.message, '请求超时');
+  const pending = detailDeferred(); response = pending.promise;
+  const retry = vm.open(book);
+  assert.equal(vm.hasLoadError, false); assert.equal(vm.message, '');
+  vm.close(); assert.equal(vm.hasLoadError, false);
+  pending.reject(new AppError('HTTP_TIMEOUT', '迟到超时')); await retry;
+  assert.equal(vm.loading, false); assert.equal(vm.hasLoadError, false); assert.equal(vm.message, '');
+  response = Promise.resolve(new BookDetails(book));
+  await vm.open(book); assert.equal(vm.hasLoadError, false);
+});
+
+test('detail cache expires after five minutes, evicts old entries and never remembers a failed response', async () => {
+  let now = 0, calls = 0, fail = false;
+  const vm = new BookDetailsViewModel({ getDetails: async book => {
+    calls++; if (fail) throw new AppError('NETWORK_ERROR', 'Retry later'); return new BookDetails(book);
+  } }, new MemoryBookshelfRepository(), () => now);
+  await vm.open(remoteDetailBook()); await vm.open(remoteDetailBook());
+  assert.equal(calls, 1);
+  now = 5 * 60 * 1000;
+  await vm.open(remoteDetailBook()); assert.equal(calls, 2);
+  for (let index = 0; index < 12; index++) await vm.open(remoteDetailBook(`entry-${index}`));
+  await vm.open(remoteDetailBook()); assert.equal(calls, 15);
+  fail = true;
+  await vm.open(remoteDetailBook('failed')); assert.ok(vm.message);
+  fail = false;
+  await vm.open(remoteDetailBook('failed')); assert.equal(vm.message, ''); assert.equal(calls, 17);
+});
+
+test('details can be saved independently of login or loading failure and duplicate saves preserve existing local files', async () => {
+  const book = new Book('details-1', 'Selected book', 'Author', BookFormat.PDF, '', '', false);
+  const shelf = new MemoryBookshelfRepository();
+  const details = new BookDetailsViewModel({ getDetails: async () => { throw new AppError('AUTH_REQUIRED', '请登录'); } }, shelf);
+  await details.open(book);
+  assert.equal(details.requiresLogin, true); assert.equal(details.loading, false);
+  assert.equal(details.shelfReady, true); assert.equal(details.saved, false);
+  await Promise.all([details.save(), details.save()]);
+  assert.equal(details.saved, true); assert.equal((await shelf.listBooks()).length, 1);
+  assert.equal((await shelf.listBooks())[0].hasLocalFile(), false);
+  await shelf.saveLocalFile(book.id, localFile());
+  await details.open(book);
+  assert.equal(details.saved, true);
+  await details.save();
+  assert.equal((await shelf.listBooks())[0].hasLocalFile(), true);
+});
+
+test('details ignore late successes, failures and shelf lookups after selecting another book or leaving', async () => {
+  for (const lateFailure of [false, true]) {
+    const oldDetails = detailDeferred(), oldShelf = detailDeferred();
+    const a = new Book('a', 'Book A', '', BookFormat.PDF, '');
+    const b = new Book('b', 'Book B', '', BookFormat.EPUB, '');
+    let shelfCalls = 0;
+    const vm = new BookDetailsViewModel({ getDetails: book => book.id === 'a' ? oldDetails.promise : Promise.resolve(new BookDetails(b)) },
+      { listBooks: () => ++shelfCalls === 1 ? oldShelf.promise : Promise.resolve([]) });
+    const old = vm.open(a);
+    await vm.open(b);
+    if (lateFailure) { oldDetails.reject(new AppError('AUTH_REQUIRED', 'Old session')); oldShelf.reject(new Error('Old shelf')); }
+    else { oldDetails.resolve(new BookDetails(a)); oldShelf.resolve([a]); }
+    await old;
+    assert.equal(vm.book.id, 'b'); assert.equal(vm.details.book.id, 'b');
+    assert.equal(vm.saved, false); assert.equal(vm.requiresLogin, false);
+    assert.equal(vm.message, ''); assert.equal(vm.shelfMessage, '');
+    assert.equal(vm.shelfReady, true); assert.equal(vm.loading, false);
+    const final = detailDeferred();
+    const closed = new BookDetailsViewModel({ getDetails: () => final.promise }, new MemoryBookshelfRepository());
+    const loading = closed.open(a); closed.close();
+    final.resolve(new BookDetails(b)); await loading;
+    assert.equal(closed.details, undefined); assert.equal(closed.book.id, 'a');
+    assert.equal(closed.loading, false);
+  }
+});
+
+test('details retry fetch and shelf errors without a blind save or exposing internal errors', async () => {
+  const book = new Book('a', 'Book A', '', BookFormat.PDF, '');
+  let rejectDetail = true, rejectShelf = true, additions = 0;
+  const vm = new BookDetailsViewModel({ getDetails: async () => {
+    if (rejectDetail) throw new Error('synthetic-internal-error'); return new BookDetails(book, 'Publisher');
+  } }, { listBooks: async () => { if (rejectShelf) throw new Error('synthetic-internal-error'); return []; },
+    addBook: async () => { additions++; } });
+  await vm.open(book);
+  assert.equal(vm.shelfReady, false); assert.ok(vm.message); assert.ok(vm.shelfMessage);
+  assert.ok(!vm.message.includes('synthetic-internal-error'));
+  await vm.save(); assert.equal(additions, 0);
+  rejectDetail = false; rejectShelf = false;
+  await Promise.all([vm.loadDetails(), vm.refreshShelf()]);
+  assert.equal(vm.message, ''); assert.equal(vm.shelfMessage, ''); assert.equal(vm.details.publisher, 'Publisher');
+  await vm.save(); assert.equal(additions, 1); assert.equal(vm.saved, true);
+});
+
+test('a late save cannot mark a different details page as saved and saves contain bookmarks only', async () => {
+  const pending = detailDeferred(); const added = [];
+  const a = new Book('a', 'Book A', '', BookFormat.PDF, '', '', false).withLocalFile(localFile());
+  const b = new Book('b', 'Book B', '', BookFormat.EPUB, '');
+  const vm = new BookDetailsViewModel({ getDetails: async book => new BookDetails(book) },
+    { listBooks: async () => [], addBook: async book => { added.push(book); await pending.promise; } });
+  await vm.open(a);
+  const save = vm.save();
+  await vm.open(b);
+  pending.resolve(); await save;
+  assert.equal(added.length, 1); assert.equal(added[0].id, 'a'); assert.equal(added[0].hasLocalFile(), false);
+  assert.equal(vm.book.id, 'b'); assert.equal(vm.saved, false); assert.equal(vm.saving, false);
+  assert.equal(vm.shelfMessage, '');
+});
 
 test('catalog searches title, author and format; empty query returns demo books', async () => {
   const catalog = new DemoBookCatalogRepository();

@@ -11,6 +11,7 @@ export struct CatalogCard {
   @Prop cardWidth: number = 240;
   coverImages: CoverImageRepository | undefined = undefined;
   onSave: (book: Book) => void = () => {};
+  onOpen: (book: Book) => void = () => {};
 
   build() {
     Column() {
@@ -22,6 +23,8 @@ export struct CatalogCard {
       .width('100%')
       .padding({ left: 18, right: 18, top: 20, bottom: 20 })
       .backgroundColor(ReaderTheme.SUBTLE)
+      .accessibilityText(`查看《${this.book.title}》详情`)
+      .onClick(() => this.onOpen(this.book))
       Column({ space: 7 }) {
         Text(this.book.title)
           .width('100%')
@@ -32,6 +35,8 @@ export struct CatalogCard {
           .fontColor(ReaderTheme.INK)
           .maxLines(2)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .accessibilityText(`查看《${this.book.title}》详情`)
+          .onClick(() => this.onOpen(this.book))
         Text(this.book.author)
           .width('100%')
           .height(18)

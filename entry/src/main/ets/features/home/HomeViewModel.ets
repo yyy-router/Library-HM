@@ -173,6 +173,12 @@ export class HomeViewModel {
     }
   }
 
+  async handleAuthenticationRequired(): Promise<void> {
+    this.clearAccount();
+    this.message = '此操作需要登录，请先在首页登录。';
+    await this.loadRecommendations();
+  }
+
   private clearAccount(): void {
     this.session = undefined;
     this.clearSearch();
