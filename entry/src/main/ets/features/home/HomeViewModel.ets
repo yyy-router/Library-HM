@@ -6,7 +6,7 @@ import { BookshelfRepository } from '../../domain/repository/BookshelfRepository
 import { AppError } from '../../core/error/AppError';
 
 export enum RecommendationState {
-  Guest, Loading, Unconfigured, Ready, Error
+  Loading, Unconfigured, Ready, Error
 }
 
 @Observed
@@ -21,7 +21,9 @@ export class HomeViewModel {
   message: string = '';
   loginMessage: string = '';
   recommendations: Book[] = [];
-  recommendationState: RecommendationState = RecommendationState.Guest;
+  recommendationState: RecommendationState = RecommendationState.Loading;
+  recommendationMessage: string = '';
+  listRevision: number = 0;
   private recommendationVersion: number = 0;
   private searchVersion: number = 0;
   private searching: boolean = false;
@@ -39,28 +41,33 @@ export class HomeViewModel {
     try {
       this.session = await this.account.getSession();
       await this.loadRecommendations();
-    } catch {
-      this.message = '暂时无法读取账户状态。';
+    } catch (error) {
+      if (error instanceof AppError && error.code === 'AUTH_REQUIRED') this.clearAccount();
+      this.message = error instanceof AppError ? error.message : '暂时无法读取账户状态。';
+      await this.loadRecommendations();
     }
   }
 
   async loadRecommendations(): Promise<void> {
     const version = ++this.recommendationVersion;
+    const personalized = this.session !== undefined;
     this.recommendations = [];
-    if (!this.session) {
-      this.recommendationState = RecommendationState.Guest;
-      return;
-    }
+    this.listRevision++;
+    this.recommendationMessage = '';
     this.recommendationState = RecommendationState.Loading;
     try {
-      const books = await this.catalog.getRecommended();
+      const books = personalized ? await this.catalog.getRecommended() : await this.catalog.getPopular();
       if (version !== this.recommendationVersion) return;
       this.recommendations = books;
       this.recommendationState = RecommendationState.Ready;
     } catch (error) {
       if (version !== this.recommendationVersion) return;
+      if (personalized && error instanceof AppError && error.code === 'AUTH_REQUIRED') {
+        this.clearAccount(); this.message = error.message; await this.loadRecommendations(); return;
+      }
       this.recommendationState = error instanceof AppError && error.code === 'NOT_IMPLEMENTED' ?
         RecommendationState.Unconfigured : RecommendationState.Error;
+      this.recommendationMessage = error instanceof AppError ? error.message : '获取书目失败，请稍后重试。';
     }
   }
 
@@ -92,9 +99,18 @@ export class HomeViewModel {
       const results = await this.catalog.search(this.keyword);
       if (version !== this.searchVersion) return;
       this.results = results;
+      this.listRevision++;
       this.searched = true;
-    } catch {
-      if (version === this.searchVersion) this.message = '搜索失败，请稍后重试。';
+    } catch (error) {
+      if (version === this.searchVersion) {
+        if (error instanceof AppError && error.code === 'AUTH_REQUIRED') {
+          this.clearAccount();
+          this.message = error.message;
+          await this.loadRecommendations();
+          return;
+        }
+        this.message = error instanceof AppError ? error.message : '搜索失败，请稍后重试。';
+      }
     } finally {
       if (version === this.searchVersion) {
         this.searching = false;
@@ -106,7 +122,7 @@ export class HomeViewModel {
   async signIn(): Promise<void> {
     if (this.busy) return;
     if (!this.email.trim() || !this.password) {
-      this.loginMessage = '请填写邮箱和密码；当前登录为占位入口。';
+      this.loginMessage = '请填写邮箱和密码。';
       this.message = this.loginMessage;
       return;
     }
@@ -116,6 +132,7 @@ export class HomeViewModel {
     this.loginMessage = '';
     try {
       this.session = await this.account.signIn(this.email.trim(), password);
+      this.clearSearch();
       this.message = '登录成功。';
       this.email = '';
       await this.loadRecommendations();
@@ -132,7 +149,7 @@ export class HomeViewModel {
     this.busy = true;
     try {
       await this.account.signOut();
-      this.session = undefined;
+      this.clearAccount();
       this.clearLoginDraft();
       await this.loadRecommendations();
       this.message = '已退出登录。';
@@ -154,5 +171,14 @@ export class HomeViewModel {
     } finally {
       this.busy = false;
     }
+  }
+
+  private clearAccount(): void {
+    this.session = undefined;
+    this.clearSearch();
+    this.recommendationVersion++;
+    this.recommendations = [];
+    this.recommendationState = RecommendationState.Loading;
+    this.recommendationMessage = '';
   }
 }

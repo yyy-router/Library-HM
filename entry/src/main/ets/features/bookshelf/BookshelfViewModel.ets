@@ -58,8 +58,8 @@ export class BookshelfViewModel {
         this.message = book.hasLocalFile() ? '本地图书已导入。' :
           '已添加演示书目，真实文件导入尚未接入，当前没有可阅读的本地文件。';
       }
-    } catch {
-      this.message = '导入失败，请稍后重试。';
+    } catch (error) {
+      this.message = error instanceof AppError ? error.message : '导入失败，请稍后重试。';
     } finally {
       this.busy = false;
     }

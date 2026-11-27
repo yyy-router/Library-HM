@@ -1,32 +1,49 @@
 import { AppConfig } from '../core/config/AppConfig';
-import { AppError } from '../core/error/AppError';
-import { DemoAccountRepository, DemoBookCatalogRepository, DemoBookshelfRepository } from '../data/demo/DemoRepositories';
-import { DemoFileImporter } from '../data/demo/DemoFileImporter';
+import { HttpClient } from '../core/network/HttpClient';
+import { HttpConfig, HttpTransport, UnconfiguredHttpTransport } from '../core/network/HttpTypes';
+import { MemoryBookshelfRepository } from '../data/local/MemoryBookshelfRepository';
+import { UnavailableFileImporter } from '../data/local/UnavailableFileImporter';
+import { EapiAccountRepository } from '../data/remote/EapiAccountRepository';
+import { EapiBookCatalogRepository } from '../data/remote/EapiBookCatalogRepository';
+import { EapiClient } from '../data/remote/EapiClient';
+import { EapiSessionStore } from '../data/remote/EapiSessionStore';
+import { MemorySessionVault, SessionVault } from '../core/security/SessionVault';
 import { AccountRepository } from '../domain/repository/AccountRepository';
 import { BookCatalogRepository } from '../domain/repository/BookCatalogRepository';
 import { BookshelfRepository } from '../domain/repository/BookshelfRepository';
 import { FileImporter } from '../domain/service/FileImporter';
 import { BookDownloader } from '../domain/service/BookDownloader';
-import { UnavailableBookDownloader } from '../data/demo/UnavailableBookDownloader';
+import { UnavailableBookDownloader } from '../data/local/UnavailableBookDownloader';
+import { CoverImageRepository, ImageSourceEncoder } from '../domain/service/CoverImageRepository';
+import { HttpCoverImageRepository } from '../data/remote/HttpCoverImageRepository';
 
 // 应用级装配入口：后续只在这里替换真实网络、文件与持久化实现。
 export class AppContainer {
+  readonly http: HttpClient;
+  readonly api: EapiClient;
   readonly catalog: BookCatalogRepository;
   readonly bookshelf: BookshelfRepository;
   readonly account: AccountRepository;
   readonly importer: FileImporter;
   readonly downloader: BookDownloader;
+  readonly covers: CoverImageRepository | undefined;
 
-  constructor() {
-    if (!AppConfig.DEMO_MODE) {
-      throw new AppError('NOT_IMPLEMENTED', '真实数据实现尚未配置。');
-    }
-    this.catalog = new DemoBookCatalogRepository();
-    this.bookshelf = new DemoBookshelfRepository();
-    this.account = new DemoAccountRepository();
-    this.importer = new DemoFileImporter();
+  constructor(transport: HttpTransport = new UnconfiguredHttpTransport(), baseUrl: string = AppConfig.API_BASE_URL,
+    vault: SessionVault = new MemorySessionVault(), imageEncoder?: ImageSourceEncoder) {
+    const config = new HttpConfig();
+    config.baseUrl = baseUrl;
+    config.headers = { 'accept': 'application/json', 'source': 'android' };
+    this.http = new HttpClient(transport, config);
+    this.api = new EapiClient(this.http, new EapiSessionStore(vault, baseUrl));
+    this.catalog = new EapiBookCatalogRepository(this.api);
+    this.bookshelf = new MemoryBookshelfRepository();
+    this.account = new EapiAccountRepository(this.api);
+    this.importer = new UnavailableFileImporter();
     this.downloader = new UnavailableBookDownloader();
+    const imageConfig = new HttpConfig();
+    imageConfig.headers = { 'accept': 'image/jpeg,image/png,image/webp' };
+    imageConfig.maxResponseBytes = 1024 * 1024;
+    // 独立配置，封面域名不会收到 API 凭证或 Cookie。
+    this.covers = imageEncoder ? new HttpCoverImageRepository(new HttpClient(transport, imageConfig), imageEncoder) : undefined;
   }
 }
-
-export const appContainer: AppContainer = new AppContainer();

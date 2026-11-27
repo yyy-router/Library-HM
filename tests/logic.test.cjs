@@ -5,7 +5,6 @@ const path = require('node:path');
 // Only pure logic is exercised. This identity decorator does not emulate ArkUI reactivity.
 globalThis.Observed = target => target;
 const load = file => require(path.join(process.cwd(), '.local/ci/logic/dist', file));
-const { AppContainer } = load('app/AppContainer.js');
 const { Book, BookFormat } = load('domain/model/Book.js');
 const { ReadingRecord } = load('domain/model/ReadingRecord.js');
 const { DemoBookCatalogRepository, DemoBookshelfRepository, DemoAccountRepository } = load('data/demo/DemoRepositories.js');
@@ -18,6 +17,14 @@ const { ShelfFilter, ShelfSort } = load('domain/model/ShelfEntry.js');
 const { AccountSession } = load('domain/model/AccountSession.js');
 const { LocalBookFile } = load('domain/model/LocalBookFile.js');
 const { DownloadState } = load('domain/model/ShelfEntry.js');
+const { UnavailableBookDownloader } = load('data/local/UnavailableBookDownloader.js');
+const { AppError } = load('core/error/AppError.js');
+
+// Explicit fixtures only: production AppContainer uses the real remote repositories.
+function createDemoApp() {
+  return { catalog: new DemoBookCatalogRepository(), bookshelf: new DemoBookshelfRepository(),
+    account: new DemoAccountRepository(), importer: new DemoFileImporter(), downloader: new UnavailableBookDownloader() };
+}
 
 // These are adapter contract fixtures. They do not claim that Node wrote a HarmonyOS file.
 const localFile = () => new LocalBookFile('file:///data/storage/el2/base/files/test.epub', 2048);
@@ -70,7 +77,7 @@ test('demo account never reports a fabricated authenticated session', async () =
 });
 
 test('home clears submitted password and restores busy state after rejected login', async () => {
-  const app = new AppContainer(); const home = new HomeViewModel(app.catalog, app.bookshelf, app.account);
+  const app = createDemoApp(); const home = new HomeViewModel(app.catalog, app.bookshelf, app.account);
   await home.signIn(); assert.equal(home.busy, false); assert.match(home.message, /填写/);
   home.email = 'demo@example.invalid'; home.password = 'placeholder'; await home.signIn();
   assert.equal(home.password, ''); assert.equal(home.busy, false); assert.equal(home.session, undefined);
@@ -78,14 +85,14 @@ test('home clears submitted password and restores busy state after rejected logi
 });
 
 test('search failures release busy state and display an error instead of success', async () => {
-  const app = new AppContainer();
+  const app = createDemoApp();
   const catalog = { search: async () => { throw new Error('synthetic failure'); } };
   const home = new HomeViewModel(catalog, app.bookshelf, app.account);
   await home.search(); assert.equal(home.busy, false); assert.match(home.message, /失败/);
 });
 
 test('clearing search ignores late success and failure while a normal search still completes', async () => {
-  const app = new AppContainer();
+  const app = createDemoApp();
   const results = await app.catalog.search('指南');
   for (const rejectLate of [false, true]) {
     let resolve, reject;
@@ -106,7 +113,7 @@ test('clearing search ignores late success and failure while a normal search sti
 });
 
 test('a cleared search cannot overwrite or release the busy state of a newer search', async () => {
-  const app = new AppContainer(); const finish = [];
+  const app = createDemoApp(); const finish = [];
   const home = new HomeViewModel({ search: () => new Promise(resolve => finish.push(resolve)) },
     app.bookshelf, app.account);
   home.keyword = 'old'; const old = home.search(); home.clearSearch();
@@ -120,7 +127,7 @@ test('a cleared search cannot overwrite or release the busy state of a newer sea
 });
 
 test('clearing search and old search completion do not unlock a pending account operation', async () => {
-  const app = new AppContainer(); let finishSearch, finishLogin;
+  const app = createDemoApp(); let finishSearch, finishLogin;
   const home = new HomeViewModel({ search: () => new Promise(resolve => { finishSearch = resolve; }),
     getRecommended: async () => [] },
     app.bookshelf, { signIn: () => new Promise(resolve => { finishLogin = resolve; }) });
@@ -135,7 +142,7 @@ test('clearing search and old search completion do not unlock a pending account 
 });
 
 test('cancelled and failed imports do not add records or leave the screen busy', async () => {
-  const app = new AppContainer(); const count = (await app.bookshelf.listBooks()).length;
+  const app = createDemoApp(); const count = (await app.bookshelf.listBooks()).length;
   const cancelled = new BookshelfViewModel(app.bookshelf, { importBook: async () => undefined }, app.downloader);
   await cancelled.importBook(); assert.equal(cancelled.busy, false);
   const failed = new BookshelfViewModel(app.bookshelf, { importBook: async () => { throw new Error('synthetic failure'); } }, app.downloader);
@@ -143,8 +150,8 @@ test('cancelled and failed imports do not add records or leave the screen busy',
   assert.equal((await app.bookshelf.listBooks()).length, count);
 });
 
-test('shared container keeps demo bookmarks and imports unreadable without real downloads', async () => {
-  const app = new AppContainer();
+test('explicit demo fixtures keep bookmarks and imports unreadable without real downloads', async () => {
+  const app = createDemoApp();
   const home = new HomeViewModel(app.catalog, app.bookshelf, app.account);
   const shelf = new BookshelfViewModel(app.bookshelf, app.importer, app.downloader);
   home.keyword = '指南'; await home.search(); await home.addToShelf(home.results[0]);
@@ -159,19 +166,22 @@ test('shared container keeps demo bookmarks and imports unreadable without real 
   assert.equal(await app.bookshelf.getReadingRecord(imported.id), undefined);
 });
 
-test('recommendations require a session and never fall back to the demo search catalog', async () => {
-  const app = new AppContainer();
-  let calls = 0;
+test('guests load popular books and signed-in readers use only the recommendation endpoint', async () => {
+  const app = createDemoApp();
+  let calls = 0, popularCalls = 0;
   const catalog = {
     search: async () => { throw new Error('search must not supply recommendations'); },
-    getRecommended: async () => { calls++; return []; }
+    getRecommended: async () => { calls++; return []; },
+    getPopular: async () => { popularCalls++; return []; }
   };
   const home = new HomeViewModel(catalog, app.bookshelf, app.account);
   await home.loadSession();
-  assert.equal(calls, 0); assert.equal(home.recommendationState, RecommendationState.Guest);
+  assert.equal(calls, 0); assert.equal(popularCalls, 1);
+  assert.equal(home.recommendationState, RecommendationState.Ready);
   home.session = new AccountSession('synthetic-user', '测试读者');
   await home.loadRecommendations();
   assert.equal(calls, 1); assert.equal(home.recommendationState, RecommendationState.Ready);
+  assert.equal(popularCalls, 1);
   assert.deepEqual(home.recommendations, []);
   const unconfigured = new HomeViewModel(app.catalog, app.bookshelf, app.account);
   unconfigured.session = home.session; await unconfigured.loadRecommendations();
@@ -180,12 +190,13 @@ test('recommendations require a session and never fall back to the demo search c
 });
 
 test('recommendations preserve upstream order, clear stale data on failure and reset on logout', async () => {
-  const app = new AppContainer();
+  const app = createDemoApp();
   const source = (await app.catalog.search('')).slice(0, 3).reverse();
   let fail = false;
   const catalog = {
     search: async () => [],
-    getRecommended: async () => { if (fail) throw new Error('synthetic outage'); return source; }
+    getRecommended: async () => { if (fail) throw new AppError('INVALID_RESPONSE', '测试：书目格式无效'); return source; },
+    getPopular: async () => []
   };
   const home = new HomeViewModel(catalog, app.bookshelf, app.account);
   home.session = new AccountSession('synthetic-user', '测试读者');
@@ -193,28 +204,88 @@ test('recommendations preserve upstream order, clear stale data on failure and r
   assert.deepEqual(home.recommendations.map(book=>book.id), source.map(book=>book.id));
   fail = true; await home.loadRecommendations();
   assert.equal(home.recommendationState, RecommendationState.Error);
+  assert.equal(home.recommendationMessage, '测试：书目格式无效');
   assert.deepEqual(home.recommendations, []);
   await home.signOut();
-  assert.equal(home.recommendationState, RecommendationState.Guest);
+  assert.equal(home.recommendationState, RecommendationState.Ready);
   assert.deepEqual(home.recommendations, []);
 });
 
 test('logging out ignores a late recommendation response from the prior session', async () => {
-  const app = new AppContainer();
+  const app = createDemoApp();
   let resolveList;
   const response = new Promise(resolve => { resolveList = resolve; });
-  const catalog = { search: async () => [], getRecommended: () => response };
+  const popular = (await app.catalog.search('')).slice(0, 1);
+  const catalog = { search: async () => [], getRecommended: () => response, getPopular: async () => popular };
   const home = new HomeViewModel(catalog, app.bookshelf, app.account);
   home.session = new AccountSession('synthetic-user', '测试读者');
   const loading = home.loadRecommendations();
   await home.signOut();
   resolveList(await app.catalog.search('')); await loading;
-  assert.equal(home.recommendationState, RecommendationState.Guest);
-  assert.deepEqual(home.recommendations, []);
+  assert.equal(home.recommendationState, RecommendationState.Ready);
+  assert.deepEqual(home.recommendations, popular);
+});
+
+test('logging in replaces popular books and ignores a late anonymous discovery response', async () => {
+  const app = createDemoApp();
+  const source = await app.catalog.search('');
+  let resolvePopular;
+  const catalog = { search: async () => [], getPopular: () => new Promise(resolve => { resolvePopular = resolve; }),
+    getRecommended: async () => source.slice(1, 3) };
+  const home = new HomeViewModel(catalog, app.bookshelf, {
+    signIn: async () => new AccountSession('synthetic-user', '测试读者')
+  });
+  const pending = home.loadRecommendations();
+  home.searched = true; home.results = source.slice(0, 1);
+  home.email = 'reader@example.invalid'; home.password = 'synthetic-password';
+  await home.signIn();
+  resolvePopular(source.slice(0, 1)); await pending;
+  assert.ok(home.session);
+  assert.equal(home.searched, false); assert.deepEqual(home.results, []);
+  assert.deepEqual(home.recommendations, source.slice(1, 3));
+});
+
+test('confirmed search authentication failure clears the account and loads public books without a stuck spinner', async () => {
+  const app = createDemoApp(); const popular = (await app.catalog.search('')).slice(0, 2);
+  const home = new HomeViewModel({ search: async () => { throw new AppError('AUTH_REQUIRED', '测试：登录失效'); },
+    getRecommended: async () => [], getPopular: async () => popular }, app.bookshelf, app.account);
+  home.session = new AccountSession('synthetic-user', '测试读者'); home.keyword = 'book';
+  await home.search();
+  assert.equal(home.session, undefined); assert.equal(home.busy, false);
+  assert.equal(home.recommendationState, RecommendationState.Ready);
+  assert.deepEqual(home.recommendations, popular); assert.match(home.message, /登录失效/);
+});
+
+test('slow authentication recovery cannot overwrite a newer login or search message', async () => {
+  const app = createDemoApp(); const results = (await app.catalog.search('')).slice(0, 1);
+  for (const action of ['login', 'search']) {
+    let releasePopular, notifyRecovery, searches = 0;
+    const recovering = new Promise(resolve => { notifyRecovery = resolve; });
+    const home = new HomeViewModel({ search: async () => {
+      if (++searches === 1) throw new AppError('AUTH_REQUIRED', '测试：旧登录失效');
+      return results;
+    }, getRecommended: async () => [], getPopular: () => {
+      notifyRecovery(); return new Promise(resolve => { releasePopular = resolve; });
+    } }, app.bookshelf, { signIn: async () => new AccountSession('new-account', '新读者') });
+    home.session = new AccountSession('old-account', '旧读者'); home.keyword = 'old';
+    const oldSearch = home.search(); await recovering;
+    assert.equal(home.busy, false); assert.equal(home.message, '测试：旧登录失效');
+    if (action === 'login') {
+      home.email = 'reader@example.invalid'; home.password = 'synthetic-password'; await home.signIn();
+      assert.equal(home.message, '登录成功。');
+    } else {
+      home.keyword = 'new'; await home.search(); assert.equal(home.message, '');
+    }
+    const currentMessage = home.message;
+    releasePopular([]); await oldSearch;
+    assert.equal(home.message, currentMessage);
+    if (action === 'login') assert.equal(home.session.accountId, 'new-account');
+    else assert.deepEqual(home.results, results);
+  }
 });
 
 test('bookshelf merges history once per book and applies reading filters, search and sort', async () => {
-  const app = new AppContainer();
+  const app = createDemoApp();
   const shelf = new BookshelfViewModel(app.bookshelf, app.importer, app.downloader);
   await shelf.load();
   assert.equal(shelf.entries.length, 8); assert.equal(shelf.readingCount, 4);
@@ -253,7 +324,7 @@ test('local readiness requires non-demo verified file metadata, not a remote URL
 });
 
 test('home saves only bookmarks and adding an existing bookmark preserves its local file', async () => {
-  const app = new AppContainer();
+  const app = createDemoApp();
   const home = new HomeViewModel(app.catalog, app.bookshelf, app.account);
   const incoming = new Book('remote-new', '新书目', '测试', BookFormat.EPUB, '').withLocalFile(localFile());
   await home.addToShelf(incoming);
@@ -267,7 +338,7 @@ test('home saves only bookmarks and adding an existing bookmark preserves its lo
 });
 
 test('a download stays unreadable until file registration completes and duplicate taps start one request', async () => {
-  const app = new AppContainer();
+  const app = createDemoApp();
   let finish, report, calls = 0;
   const downloader = { download: (_book, callback) => {
     calls++; report = callback; return new Promise(resolve => { finish = resolve; });
@@ -297,7 +368,7 @@ test('a download stays unreadable until file registration completes and duplicat
 
 test('download failure or invalid files preserve bookmarks and history, then allow a retry', async () => {
   for (const result of ['network-error', 'remote-url', 'empty-file']) {
-    const app = new AppContainer(); let calls = 0;
+    const app = createDemoApp(); let calls = 0;
     const downloader = { download: async () => {
       if (++calls === 2) return localFile();
       if (result === 'network-error') throw new Error('synthetic outage');
@@ -318,7 +389,7 @@ test('download failure or invalid files preserve bookmarks and history, then all
 });
 
 test('an offline local import opens without an account or download, and an unready open cannot save progress', async () => {
-  const app = new AppContainer(); let downloads = 0;
+  const app = createDemoApp(); let downloads = 0;
   const book = new Book('local-import', '本地文件', '测试', BookFormat.EPUB, '').withLocalFile(localFile());
   const shelf = new BookshelfViewModel(app.bookshelf, {importBook: async () => book},
     {download: async () => { downloads++; throw new Error('unexpected download'); }});

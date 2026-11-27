@@ -2,11 +2,13 @@ import { Book, BookFormat } from '../../domain/model/Book';
 import { DownloadState } from '../../domain/model/ShelfEntry';
 import { ReaderTheme } from '../theme/ReaderTheme';
 import { BookCover } from './BookCover';
+import { CoverImageRepository } from '../../domain/service/CoverImageRepository';
 
 @Component
 export struct BookItem {
   @Prop book: Book = new Book('', '', '', BookFormat.EPUB, '');
   @Prop actionEnabled: boolean = true;
+  coverImages: CoverImageRepository | undefined = undefined;
   @Prop progress: number = 0;
   @Prop lastRead: boolean = false;
   @Prop bookWidth: number = 190;
@@ -24,7 +26,7 @@ export struct BookItem {
   build() {
     Column() {
       Stack({ alignContent: Alignment.TopEnd }) {
-        BookCover({ book: this.book, fixedRatio: 0.75 })
+        BookCover({ book: this.book, fixedRatio: 0.75, coverImages: this.coverImages })
         if (this.lastRead) {
           Text('上次读到')
             .fontSize(12)
@@ -57,9 +59,14 @@ export struct BookItem {
             .fontSize(12)
             .fontColor(this.progress > 0 ? ReaderTheme.BLUE : ReaderTheme.MUTED)
             .layoutWeight(1)
-          Text(this.book.format)
-            .fontSize(12)
-            .fontColor(ReaderTheme.MUTED)
+          if (this.book.formatLabel) {
+            Text(this.book.formatLabel)
+              .maxLines(1)
+              .constraintSize({ maxWidth: 66 })
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .fontSize(12)
+              .fontColor(ReaderTheme.MUTED)
+          }
         }
         .width('100%')
         Button(this.actionLabel(), { type: ButtonType.Normal })
