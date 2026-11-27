@@ -5,6 +5,7 @@ import { ReaderIcon } from '../../shared/components/ReaderIcon';
 import { ReaderTheme } from '../../shared/theme/ReaderTheme';
 import { HomeViewModel, RecommendationState } from './HomeViewModel';
 import { CoverImageRepository } from '../../domain/service/CoverImageRepository';
+import { StatusMessage } from '../../shared/components/StatusMessage';
 
 @Component
 export struct HomePage {
@@ -12,6 +13,9 @@ export struct HomePage {
   @Prop pageWidth: number = 1000;
   @State private flowWidth: number = 0;
   coverImages: CoverImageRepository | undefined = undefined;
+  onOpenDetails: (book: Book) => void = () => {};
+
+  aboutToAppear(): void { this.viewModel.expireMessage(this.viewModel.messageExpiresAt); }
 
   private contentWidth(): number {
     return this.flowWidth > 0 ? this.flowWidth : Math.min(this.pageWidth, 1280) - (this.pageWidth > 840 ? 96 : 48);
@@ -104,6 +108,32 @@ export struct HomePage {
     .border({ width: 1, color: ReaderTheme.LINE })
   }
 
+  @Builder
+  catalogFlow(books: Book[], revision: number) {
+    WaterFlow({ footer: this.navigationClearance }) {
+      ForEach(books, (book: Book) => {
+        FlowItem() {
+          CatalogCard({ book: book, cardWidth: this.cardWidth(), actionEnabled: !this.viewModel.busy, coverImages: this.coverImages,
+            onOpen: (selected: Book) => this.onOpenDetails(selected),
+            onSave: (selected: Book) => { this.viewModel.addToShelf(selected); } })
+        }
+        // 百分比宽度在设备上可能按整个 WaterFlow 解析，保持明确列宽。
+        .width(this.cardWidth())
+      }, (book: Book) => `${revision}:${book.id}`)
+    }
+    .columnsTemplate('1fr '.repeat(this.columns()).trim())
+    .columnsGap(this.pageWidth > 600 ? 22 : 14)
+    .rowsGap(22)
+    .cachedCount(4)
+    .scrollBar(BarState.Auto)
+    .width('100%')
+    .onAreaChange((_oldArea: Area, area: Area) => {
+      const width = Number(area.width);
+      if (width > 0 && this.flowWidth !== width) this.flowWidth = width;
+    })
+    .layoutWeight(1)
+  }
+
   build() {
     Column() {
       Column() { this.searchBox() }
@@ -130,50 +160,52 @@ export struct HomePage {
       .width('100%')
       .margin({ bottom: 22 })
       if (this.viewModel.message.length > 0) {
-        Text(this.viewModel.message)
-          .width('100%')
-          .fontSize(13)
-          .fontColor(ReaderTheme.BLUE)
+        StatusMessage({ text: this.viewModel.message, expiresAt: this.viewModel.messageExpiresAt,
+          onExpire: (expiresAt: number, _revision: number) => this.viewModel.expireMessage(expiresAt) })
           .margin({ bottom: 12 })
       }
-      if ((this.viewModel.searched ? this.viewModel.results : this.viewModel.recommendations).length > 0) {
-        WaterFlow({ footer: this.navigationClearance }) {
-          ForEach(this.viewModel.searched ? this.viewModel.results : this.viewModel.recommendations, (book: Book) => {
-            FlowItem() {
-              CatalogCard({ book: book, cardWidth: this.cardWidth(), actionEnabled: !this.viewModel.busy, coverImages: this.coverImages,
-                onSave: (selected: Book) => { this.viewModel.addToShelf(selected); } })
+      Stack({ alignContent: Alignment.TopStart }) {
+        // 发现列表常驻，切换搜索时只隐藏，保留其原生滚动状态。
+        Column() {
+          if (this.viewModel.recommendations.length > 0) {
+            this.catalogFlow(this.viewModel.recommendations, this.viewModel.discoveryRevision)
+          } else {
+            Scroll() {
+              Column() { this.recommendationState() }.width('100%').padding({ bottom: 80 })
             }
-            // FlowItem 子组件的百分比基准在设备上可能仍是整个 WaterFlow，必须传入明确列宽。
-            .width(this.cardWidth())
-          }, (book: Book) => `${this.viewModel.searched ? 'search' : 'discovery'}:${this.viewModel.listRevision}:${book.id}`)
-        }
-        .columnsTemplate('1fr '.repeat(this.columns()).trim())
-        .columnsGap(this.pageWidth > 600 ? 22 : 14)
-        .rowsGap(22)
-        .cachedCount(4)
-        .scrollBar(BarState.Auto)
-        .width('100%')
-        .onAreaChange((_oldArea: Area, area: Area) => {
-          const width = Number(area.width);
-          if (width > 0 && this.flowWidth !== width) this.flowWidth = width;
-        })
-        .layoutWeight(1)
-      } else {
-        Scroll() {
-          Column() {
-            if (this.viewModel.searched) {
-              EmptyState({ title: '暂无搜索结果', description: '换个书名或作者试试。' })
-            } else {
-              this.recommendationState()
-            }
+            .layoutWeight(1)
+            .width('100%')
+            .scrollBar(BarState.Auto)
           }
-          .width('100%')
-          .padding({ bottom: 80 })
         }
-        .layoutWeight(1)
         .width('100%')
-        .scrollBar(BarState.Auto)
+        .height('100%')
+        .visibility(this.viewModel.searched ? Visibility.Hidden : Visibility.Visible)
+        .enabled(!this.viewModel.searched)
+        .accessibilityLevel(this.viewModel.searched ? 'no-hide-descendants' : 'auto')
+        if (this.viewModel.searched) {
+          // 仅新搜索结果重建搜索视口，不复用发现列表或上次搜索的偏移。
+          ForEach([this.viewModel.searchResultRevision], (revision: number) => {
+            Column() {
+              if (this.viewModel.results.length > 0) {
+                this.catalogFlow(this.viewModel.results, revision)
+              } else {
+                Scroll() {
+                  Column() { EmptyState({ title: '暂无搜索结果', description: '换个书名或作者试试。' }) }
+                    .width('100%').padding({ bottom: 80 })
+                }
+                .layoutWeight(1)
+                .width('100%')
+                .scrollBar(BarState.Auto)
+              }
+            }
+            .width('100%')
+            .height('100%')
+          }, (revision: number) => `search-results:${revision}`)
+        }
       }
+      .width('100%')
+      .layoutWeight(1)
     }
     .width('100%')
     .height('100%')

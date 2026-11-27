@@ -1,41 +1,33 @@
 import { Book, BookFormat } from '../../domain/model/Book';
 import { ReaderTheme } from '../theme/ReaderTheme';
 import { CoverImageRepository } from '../../domain/service/CoverImageRepository';
+import { BookCoverViewModel } from './BookCoverViewModel';
 
 @Component
 export struct BookCover {
   @Prop @Watch('reloadCover') book: Book = new Book('', '', '', BookFormat.EPUB, '');
   @Prop fixedRatio: number = 0;
   coverImages: CoverImageRepository | undefined = undefined;
-  @State private remoteImage: string = '';
-  private loadVersion: number = 0;
+  @State private cover: BookCoverViewModel = new BookCoverViewModel();
   private visible: boolean = false;
 
   aboutToAppear(): void { this.visible = true; this.reloadCover(); }
-  aboutToDisappear(): void { this.visible = false; this.loadVersion++; }
+  aboutToDisappear(): void { this.visible = false; this.cover.close(); }
 
   private reloadCover(): void {
-    const version = ++this.loadVersion;
-    this.remoteImage = '';
-    const url = this.book.source?.coverUrl;
-    if (!this.visible || this.book.coverAsset || !url || !this.coverImages) return;
-    this.coverImages.load(url).then((source: string) => {
-      if (this.visible && version === this.loadVersion) this.remoteImage = source;
-    }).catch(() => {
-      // 保留书名占位；不因封面失败影响搜索、收藏或书架。
-    });
+    if (this.visible) this.cover.update(this.book, this.coverImages);
   }
 
   build() {
     Stack() {
-      if (this.remoteImage) {
-        Image(this.remoteImage)
+      if (this.cover.image) {
+        Image(this.cover.image)
           .width('100%')
           .height('100%')
           .objectFit(ImageFit.Contain)
           .draggable(false)
           .accessibilityText(`《${this.book.title}》封面`)
-          .onError(() => { this.remoteImage = ''; })
+          .onError(() => this.cover.clearFailedImage())
       } else if (this.book.coverAsset.length > 0) {
         Image($rawfile(`covers/${this.book.coverAsset}`))
           .width('100%')

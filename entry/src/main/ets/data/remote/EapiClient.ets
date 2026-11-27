@@ -1,7 +1,7 @@
 import { AppError } from '../../core/error/AppError';
 import { HttpClient, isHttpsUrl } from '../../core/network/HttpClient';
 import { HttpError, HttpErrorCode } from '../../core/network/HttpError';
-import { HttpParameter, HttpResponse } from '../../core/network/HttpTypes';
+import { HttpHeaders, HttpOptions, HttpParameter, HttpResponse } from '../../core/network/HttpTypes';
 import { Book } from '../../domain/model/Book';
 import { EapiEnvelope, readText } from './EapiTypes';
 import { EapiSessionStore } from './EapiSessionStore';
@@ -26,18 +26,22 @@ export class EapiClient {
     return result;
   }
 
-  private async authenticated(path: string, fields?: HttpParameter[]): Promise<EapiEnvelope> {
+  private async authenticated(path: string, fields?: HttpParameter[], allowAnonymous: boolean = false,
+    options: HttpOptions = {}): Promise<EapiEnvelope> {
     await this.sessions.restore();
-    const headers = this.sessions.headers();
+    const signedIn = this.sessions.display !== undefined;
+    const headers: HttpHeaders = allowAnonymous && !signedIn ? {} : this.sessions.headers();
     const version = this.sessions.version;
+    const authMessage = signedIn ? '登录已失效，请重新登录。' : '此操作需要登录，请先在首页登录。';
+    const requestOptions: HttpOptions = { headers: headers, acceptedStatuses: [401, 403],
+      connectTimeoutMs: options.connectTimeoutMs, readTimeoutMs: options.readTimeoutMs };
     let response: HttpResponse;
     try {
-      response = fields ? await this.http.postForm(path, fields, { headers: headers, acceptedStatuses: [401, 403] }) :
-        await this.http.get(path, { headers: headers, acceptedStatuses: [401, 403] });
+      response = fields ? await this.http.postForm(path, fields, requestOptions) : await this.http.get(path, requestOptions);
     } catch (error) {
       if (error instanceof HttpError && error.status === 401 && version === this.sessions.version) {
         await this.sessions.clear();
-        throw new AppError('AUTH_REQUIRED', '登录已失效，请重新登录。');
+        throw new AppError('AUTH_REQUIRED', authMessage);
       }
       if (error instanceof AppError) throw error;
       throw new AppError('NETWORK_ERROR', '网络请求失败，请稍后重试。');
@@ -45,7 +49,7 @@ export class EapiClient {
     if (version !== this.sessions.version) throw new AppError('REQUEST_SUPERSEDED', '会话已改变，请重新操作。');
     if (response.status === 401) {
       await this.sessions.clear();
-      throw new AppError('AUTH_REQUIRED', '登录已失效，请重新登录。');
+      throw new AppError('AUTH_REQUIRED', authMessage);
     }
     let result: EapiEnvelope;
     try { result = response.json<EapiEnvelope>(); }
@@ -58,9 +62,9 @@ export class EapiClient {
       throw new AppError('INVALID_RESPONSE', '书源返回的数据格式无效。');
     }
     if (result.success !== 1 && result.success !== true) {
-      if (/please login|not logged|authorization failed/i.test(readText(result.error))) {
+      if (/please login|not logged|authorization failed|invalid credentials/i.test(readText(result.error))) {
         await this.sessions.clear();
-        throw new AppError('AUTH_REQUIRED', '登录已失效，请重新登录。');
+        throw new AppError('AUTH_REQUIRED', authMessage);
       }
       if (response.status === 403) throw new HttpError(HttpErrorCode.Status, 403);
       throw new AppError('REMOTE_REJECTED', '书源未接受请求，请检查账户状态或稍后重试。');
@@ -72,12 +76,15 @@ export class EapiClient {
   bookPath(book: Book): string {
     const source = book.source;
     if (!source || source.origin !== this.http.baseUrl || !source.id || !source.hash) {
-      throw new AppError('INVALID_BOOK_SOURCE', '书籍缺少当前书源的下载标识。');
+      throw new AppError('INVALID_BOOK_SOURCE', '书籍缺少当前书源的有效标识，暂时无法获取详情或下载。');
     }
     return `/eapi/book/${encodeURIComponent(source.id)}/${encodeURIComponent(source.hash)}`;
   }
 
-  async getBookDetails(book: Book): Promise<EapiEnvelope> { return this.get(this.bookPath(book)); }
+  async getBookDetails(book: Book): Promise<EapiEnvelope> {
+    // 详情允许匿名访问；存在会话时沿用鉴权与版本检查，不回退或重发请求。
+    return this.authenticated(this.bookPath(book), undefined, true, { connectTimeoutMs: 30000, readTimeoutMs: 60000 });
+  }
 
   async getDownloadLink(book: Book): Promise<string> {
     const result = await this.get(`${this.bookPath(book)}/file`);

@@ -12,13 +12,18 @@ export class HttpCoverImageRepository implements CoverImageRepository {
 
   constructor(http: HttpClient, encoder: ImageSourceEncoder) { this.http = http; this.encoder = encoder; }
 
-  async load(url: string): Promise<string> {
-    if (!isHttpsUrl(url)) throw new AppError('INVALID_COVER', '封面地址无效。');
+  getCached(url: string): string | undefined {
     const cached = this.cache.get(url);
     if (cached !== undefined) {
       this.cache.delete(url); this.cache.set(url, cached);
-      return cached;
     }
+    return cached;
+  }
+
+  async load(url: string): Promise<string> {
+    if (!isHttpsUrl(url)) throw new AppError('INVALID_COVER', '封面地址无效。');
+    const cached = this.getCached(url);
+    if (cached !== undefined) return cached;
     const existing = this.pending.get(url);
     if (existing) return existing;
     const request = this.fetchImage(url);
