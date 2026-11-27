@@ -5,6 +5,7 @@ import { ReaderIcon } from '../../shared/components/ReaderIcon';
 import { ReaderTheme } from '../../shared/theme/ReaderTheme';
 import { HomeViewModel, RecommendationState } from './HomeViewModel';
 import { CoverImageRepository } from '../../domain/service/CoverImageRepository';
+import { HomeMessage } from './HomeMessage';
 
 @Component
 export struct HomePage {
@@ -13,6 +14,8 @@ export struct HomePage {
   @State private flowWidth: number = 0;
   coverImages: CoverImageRepository | undefined = undefined;
   onOpenDetails: (book: Book) => void = () => {};
+
+  aboutToAppear(): void { this.viewModel.expireMessage(this.viewModel.messageExpiresAt); }
 
   private contentWidth(): number {
     return this.flowWidth > 0 ? this.flowWidth : Math.min(this.pageWidth, 1280) - (this.pageWidth > 840 ? 96 : 48);
@@ -157,11 +160,8 @@ export struct HomePage {
       .width('100%')
       .margin({ bottom: 22 })
       if (this.viewModel.message.length > 0) {
-        Text(this.viewModel.message)
-          .width('100%')
-          .fontSize(13)
-          .fontColor(ReaderTheme.BLUE)
-          .margin({ bottom: 12 })
+        HomeMessage({ text: this.viewModel.message, expiresAt: this.viewModel.messageExpiresAt,
+          onExpire: (expiresAt: number) => this.viewModel.expireMessage(expiresAt) })
       }
       Stack({ alignContent: Alignment.TopStart }) {
         // 发现列表常驻，切换搜索时只隐藏，保留其原生滚动状态。

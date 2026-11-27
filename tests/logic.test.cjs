@@ -79,6 +79,36 @@ test('failed or superseded searches do not reset the currently accepted search v
   await home.search(); assert.equal(home.searchResultRevision, 2);
 });
 
+test('login, logout and bookmark success notices expire after three seconds', async () => {
+  const book = remoteDetailBook(); let now = 100;
+  const account = { signIn: async () => new AccountSession('42', 'Reader'), signOut: async () => {} };
+  const home = new HomeViewModel({ getPopular: async () => [], getRecommended: async () => [] },
+    new MemoryBookshelfRepository(), account, () => now);
+  home.email = 'reader@example.invalid'; home.password = 'synthetic-password';
+  for (const action of [() => home.signIn(), () => home.signOut(), () => home.addToShelf(book)]) {
+    await action(); const notice = home.message;
+    assert.ok(notice); assert.equal(home.messageExpiresAt, now + 3000);
+    const expiresAt = home.messageExpiresAt;
+    now += 2999; home.expireMessage(expiresAt); assert.equal(home.message, notice);
+    now++; home.expireMessage(expiresAt);
+    assert.equal(home.message, ''); assert.equal(home.messageExpiresAt, 0);
+  }
+});
+
+test('an old notice timer cannot clear a newer notice or an actionable error', async () => {
+  const book = remoteDetailBook(); let now = 100;
+  const home = new HomeViewModel({ search: async () => { throw new AppError('NETWORK_ERROR', '网络异常'); } },
+    new MemoryBookshelfRepository(), new DemoAccountRepository(), () => now);
+  await home.addToShelf(book); const firstExpiry = home.messageExpiresAt;
+  now += 1000;
+  await home.addToShelf(book); const secondExpiry = home.messageExpiresAt;
+  now = firstExpiry; home.expireMessage(firstExpiry);
+  assert.ok(home.message); assert.equal(home.messageExpiresAt, secondExpiry);
+  home.keyword = 'query'; await home.search();
+  now = secondExpiry; home.expireMessage(secondExpiry);
+  assert.equal(home.message, '网络异常'); assert.equal(home.messageExpiresAt, 0);
+});
+
 test('cover metadata updates preserve the current image and a replacement failure keeps the same book cover', async () => {
   const first = detailDeferred(), replacement = detailDeferred();
   let calls = 0;
