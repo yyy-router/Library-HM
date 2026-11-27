@@ -23,7 +23,8 @@ export class HomeViewModel {
   recommendations: Book[] = [];
   recommendationState: RecommendationState = RecommendationState.Loading;
   recommendationMessage: string = '';
-  listRevision: number = 0;
+  discoveryRevision: number = 0;
+  searchResultRevision: number = 0;
   private recommendationVersion: number = 0;
   private searchVersion: number = 0;
   private searching: boolean = false;
@@ -52,7 +53,7 @@ export class HomeViewModel {
     const version = ++this.recommendationVersion;
     const personalized = this.session !== undefined;
     this.recommendations = [];
-    this.listRevision++;
+    this.discoveryRevision++;
     this.recommendationMessage = '';
     this.recommendationState = RecommendationState.Loading;
     try {
@@ -99,7 +100,7 @@ export class HomeViewModel {
       const results = await this.catalog.search(this.keyword);
       if (version !== this.searchVersion) return;
       this.results = results;
-      this.listRevision++;
+      this.searchResultRevision++;
       this.searched = true;
     } catch (error) {
       if (version === this.searchVersion) {

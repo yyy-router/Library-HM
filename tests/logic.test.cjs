@@ -45,6 +45,40 @@ const remoteDetailBook = (id = 'a', url = 'https://covers.example.invalid/a.jpg'
     new RemoteBookSource(origin, id, 'hash', url));
 const flushCover = () => new Promise(resolve => setImmediate(resolve));
 
+test('new search results have an independent viewport revision and returning preserves the discovery list', async () => {
+  const book = remoteDetailBook();
+  const app = createDemoApp();
+  const discovery = [book];
+  const home = new HomeViewModel({ getPopular: async () => discovery, search: async () => [book] }, app.bookshelf, app.account);
+  await home.loadRecommendations();
+  const discoveryRevision = home.discoveryRevision;
+  assert.equal(home.searchResultRevision, 0);
+  home.keyword = 'first'; await home.search();
+  assert.equal(home.searchResultRevision, 1); assert.equal(home.discoveryRevision, discoveryRevision);
+  home.keyword = 'second'; await home.search();
+  assert.equal(home.searchResultRevision, 2); assert.equal(home.discoveryRevision, discoveryRevision);
+  home.clearSearch();
+  assert.equal(home.searched, false); assert.equal(home.recommendations, discovery);
+  assert.equal(home.discoveryRevision, discoveryRevision);
+  await home.loadRecommendations();
+  assert.equal(home.searchResultRevision, 2); assert.equal(home.discoveryRevision, discoveryRevision + 1);
+});
+
+test('failed or superseded searches do not reset the currently accepted search viewport', async () => {
+  const app = createDemoApp(); const old = detailDeferred();
+  let response = Promise.resolve([]);
+  const home = new HomeViewModel({ search: () => response }, app.bookshelf, app.account);
+  await home.search(); assert.equal(home.searchResultRevision, 1);
+  response = old.promise;
+  const pending = home.search(); home.clearSearch();
+  response = Promise.resolve([remoteDetailBook()]);
+  await home.search(); assert.equal(home.searchResultRevision, 2);
+  old.resolve([]); await pending;
+  assert.equal(home.searchResultRevision, 2);
+  response = Promise.reject(new AppError('NETWORK_ERROR', '失败'));
+  await home.search(); assert.equal(home.searchResultRevision, 2);
+});
+
 test('cover metadata updates preserve the current image and a replacement failure keeps the same book cover', async () => {
   const first = detailDeferred(), replacement = detailDeferred();
   let calls = 0;
