@@ -14,6 +14,8 @@ import { BookshelfRepository } from '../domain/repository/BookshelfRepository';
 import { FileImporter } from '../domain/service/FileImporter';
 import { BookDownloader } from '../domain/service/BookDownloader';
 import { UnavailableBookDownloader } from '../data/local/UnavailableBookDownloader';
+import { CoverImageRepository, ImageSourceEncoder } from '../domain/service/CoverImageRepository';
+import { HttpCoverImageRepository } from '../data/remote/HttpCoverImageRepository';
 
 // 应用级装配入口：后续只在这里替换真实网络、文件与持久化实现。
 export class AppContainer {
@@ -24,9 +26,10 @@ export class AppContainer {
   readonly account: AccountRepository;
   readonly importer: FileImporter;
   readonly downloader: BookDownloader;
+  readonly covers: CoverImageRepository | undefined;
 
   constructor(transport: HttpTransport = new UnconfiguredHttpTransport(), baseUrl: string = AppConfig.API_BASE_URL,
-    vault: SessionVault = new MemorySessionVault()) {
+    vault: SessionVault = new MemorySessionVault(), imageEncoder?: ImageSourceEncoder) {
     const config = new HttpConfig();
     config.baseUrl = baseUrl;
     config.headers = { 'accept': 'application/json', 'source': 'android' };
@@ -37,5 +40,10 @@ export class AppContainer {
     this.account = new EapiAccountRepository(this.api);
     this.importer = new UnavailableFileImporter();
     this.downloader = new UnavailableBookDownloader();
+    const imageConfig = new HttpConfig();
+    imageConfig.headers = { 'accept': 'image/jpeg,image/png,image/webp' };
+    imageConfig.maxResponseBytes = 1024 * 1024;
+    // 独立配置，封面域名不会收到 API 凭证或 Cookie。
+    this.covers = imageEncoder ? new HttpCoverImageRepository(new HttpClient(transport, imageConfig), imageEncoder) : undefined;
   }
 }

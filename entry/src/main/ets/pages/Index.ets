@@ -98,9 +98,9 @@ struct Index {
         }
         Column() {
           if (this.activeTab === 0) {
-            HomePage({ viewModel: this.homeViewModel, pageWidth: this.pageWidth })
+            HomePage({ viewModel: this.homeViewModel, pageWidth: this.pageWidth, coverImages: appContainer.covers })
           } else {
-            BookshelfPage({ viewModel: this.bookshelfViewModel, pageWidth: this.pageWidth,
+            BookshelfPage({ viewModel: this.bookshelfViewModel, pageWidth: this.pageWidth, coverImages: appContainer.covers,
               onOpenBook: (book: Book) => { this.openBook(book); } })
           }
         }

@@ -1,45 +1,25 @@
 const { test } = require('node:test');
-
 const assert = require('node:assert/strict');
-
 const fs = require('node:fs');
-
 const path = require('node:path');
-
 const vm = require('node:vm');
-
 const ts = require('typescript');
-
 const output = path.join(process.cwd(), '.local/ci/logic/dist');
-
 const load = file => require(path.join(output, file));
-
 const { HttpClient } = load('core/network/HttpClient.js');
-
 const { HttpConfig, HttpMethod, HttpParameter, HttpResponse, HttpResponseType } = load('core/network/HttpTypes.js');
-
 const { HttpError, HttpErrorCode } = load('core/network/HttpError.js');
-
 const { CancellationToken } = load('core/network/CancellationToken.js');
-
 const { MemorySessionVault } = load('core/security/SessionVault.js');
-
 const { AppContainer } = load('app/AppContainer.js');
-
 const { AccountSession } = load('domain/model/AccountSession.js');
-
 const { EapiSessionStore } = load('data/remote/EapiSessionStore.js');
-
+const { HttpCoverImageRepository } = load('data/remote/HttpCoverImageRepository.js');
 const { BookFormat } = load('domain/model/Book.js');
-
 const { readBookText } = load('data/remote/EapiTypes.js');
-
 const origin = 'https://example.invalid';
-
 const json = data => new HttpResponse(200, JSON.stringify(data));
-
 const book = (id = 1, hash = 'hash-a') => ({ id, hash, title: `Book ${id}`, author: 'Author', extension: 'epub' });
-
 function client(handler, base = origin) {
   const calls = []; const config = new HttpConfig(); config.baseUrl = base;
   const transport = { send: async (request, token) => { calls.push(request); return handler(request, token); } };
@@ -56,7 +36,6 @@ function native(relative, kits) {
     require: name => kits[name] ?? require(path.resolve(output, path.dirname(relative), name)) });
   return module.exports;
 }
-
 function nativeHttp(handler) {
   const tasks = [];
   const kit = { RequestMethod: HttpMethod, HttpDataType: { STRING: 0, ARRAY_BUFFER: 1 }, createHttp() {
@@ -107,6 +86,54 @@ test('catalog differentiates truly empty lists from malformed nonempty responses
   await assert.rejects(app.catalog.getRecommended(), { code: 'INVALID_RESPONSE' });
   payload = undefined;
   await assert.rejects(app.catalog.getRecommended(), { code: 'INVALID_RESPONSE' });
+});
+
+const pngBytes = () => new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]).buffer;
+const encoder = { encode: (bytes, mime) => `data:${mime};base64,${Buffer.from(bytes).toString('base64')}` };
+
+test('cover fetching shares HTTP transport, never forwards API credentials, deduplicates requests and caches successes', async () => {
+  const calls = []; let complete;
+  const app = new AppContainer({ send: request => {
+    calls.push(request); return new Promise(resolve => { complete = resolve; });
+  } }, origin, new MemorySessionVault(), encoder);
+  await app.api.sessions.set('42', 'synthetic-key', new AccountSession('42', 'Reader'));
+  const url = 'https://covers.example.invalid/a.png';
+  const first = app.covers.load(url), second = app.covers.load(url);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].headers['remix-userkey'], undefined); assert.equal(calls[0].headers.cookie, undefined);
+  assert.equal(calls[0].headers.source, undefined);
+  assert.equal(calls[0].responseType, HttpResponseType.Binary);
+  assert.equal(calls[0].maxResponseBytes, 1024 * 1024);
+  complete(new HttpResponse(200, pngBytes()));
+  assert.equal(await first, await second); assert.equal(await first, await app.covers.load(url));
+  assert.equal(calls.length, 1);
+});
+
+test('cover errors remain retryable and HTML/challenge/oversized images are rejected before display', async () => {
+  let body = new TextEncoder().encode('<html>challenge</html>').buffer;
+  const c = client(async () => new HttpResponse(200, body), '');
+  const covers = new HttpCoverImageRepository(c.http, encoder);
+  const url = 'https://covers.example.invalid/book';
+  await assert.rejects(covers.load(url), { code: 'INVALID_COVER' });
+  body = pngBytes(); assert.match(await covers.load(url), /^data:image\/png;base64,/);
+  assert.equal(c.calls.length, 2);
+  body = new ArrayBuffer(1024 * 1024 + 1);
+  await assert.rejects(covers.load(url + '/large'), { code: 'INVALID_COVER' });
+  await assert.rejects(covers.load('http://covers.example.invalid/a'), { code: 'INVALID_COVER' });
+  await assert.rejects(covers.load('https://name:password@covers.example.invalid/a'), { code: 'INVALID_COVER' });
+});
+
+test('cover cache evicts old entries and native encoder preserves image bytes', async () => {
+  const c = client(async () => new HttpResponse(200, pngBytes()), '');
+  const covers = new HttpCoverImageRepository(c.http, encoder);
+  for (let index = 0; index < 25; index++) await covers.load(`https://covers.example.invalid/${index}`);
+  await covers.load('https://covers.example.invalid/0');
+  assert.equal(c.calls.length, 26);
+  const { HarmonyImageSourceEncoder } = native('platform/network/HarmonyImageSourceEncoder.ets', {
+    '@kit.ArkTS': { util: { Base64Helper: class { encodeToStringSync(bytes) { return Buffer.from(bytes).toString('base64'); } } } }
+  });
+  const bytes = new Uint8Array(pngBytes());
+  assert.equal(new HarmonyImageSourceEncoder().encode(bytes, 'image/png'), encoder.encode(bytes, 'image/png'));
 });
 
 test('HTTP encodes repeated query/form keys, JSON bodies and merges headers without mutating defaults', async () => {

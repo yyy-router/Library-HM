@@ -4,14 +4,27 @@ import { EmptyState } from '../../shared/components/EmptyState';
 import { ReaderIcon } from '../../shared/components/ReaderIcon';
 import { ReaderTheme } from '../../shared/theme/ReaderTheme';
 import { HomeViewModel, RecommendationState } from './HomeViewModel';
+import { CoverImageRepository } from '../../domain/service/CoverImageRepository';
 
 @Component
 export struct HomePage {
   @ObjectLink viewModel: HomeViewModel;
   @Prop pageWidth: number = 1000;
+  @State private flowWidth: number = 0;
+  coverImages: CoverImageRepository | undefined = undefined;
+
+  private contentWidth(): number {
+    return this.flowWidth > 0 ? this.flowWidth : Math.min(this.pageWidth, 1280) - (this.pageWidth > 840 ? 96 : 48);
+  }
 
   private columns(): number {
-    return this.pageWidth > 1100 ? 4 : this.pageWidth > 600 ? 3 : 2;
+    const gap = this.pageWidth > 600 ? 22 : 14;
+    return Math.max(1, Math.min(4, Math.floor((this.contentWidth() + gap) / (210 + gap))));
+  }
+
+  private cardWidth(): number {
+    const gap = this.pageWidth > 600 ? 22 : 14;
+    return (this.contentWidth() - gap * (this.columns() - 1)) / this.columns();
   }
 
   private caption(): string {
@@ -121,9 +134,11 @@ export struct HomePage {
         WaterFlow() {
           ForEach(this.viewModel.searched ? this.viewModel.results : this.viewModel.recommendations, (book: Book) => {
             FlowItem() {
-              CatalogCard({ book: book, actionEnabled: !this.viewModel.busy,
+              CatalogCard({ book: book, cardWidth: this.cardWidth(), actionEnabled: !this.viewModel.busy, coverImages: this.coverImages,
                 onSave: (selected: Book) => { this.viewModel.addToShelf(selected); } })
             }
+            // FlowItem 子组件的百分比基准在设备上可能仍是整个 WaterFlow，必须传入明确列宽。
+            .width(this.cardWidth())
           }, (book: Book) => `${this.viewModel.searched ? 'search' : 'discovery'}:${this.viewModel.listRevision}:${book.id}`)
         }
         .columnsTemplate('1fr '.repeat(this.columns()).trim())
@@ -132,6 +147,10 @@ export struct HomePage {
         .cachedCount(4)
         .scrollBar(BarState.Auto)
         .width('100%')
+        .onAreaChange((_oldArea: Area, area: Area) => {
+          const width = Number(area.width);
+          if (width > 0 && this.flowWidth !== width) this.flowWidth = width;
+        })
         .layoutWeight(1)
       } else {
         Scroll() {

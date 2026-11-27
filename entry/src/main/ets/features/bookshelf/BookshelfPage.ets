@@ -5,11 +5,13 @@ import { EmptyState } from '../../shared/components/EmptyState';
 import { ReaderIcon } from '../../shared/components/ReaderIcon';
 import { ReaderTheme } from '../../shared/theme/ReaderTheme';
 import { BookshelfViewModel } from './BookshelfViewModel';
+import { CoverImageRepository } from '../../domain/service/CoverImageRepository';
 
 @Component
 export struct BookshelfPage {
   @ObjectLink viewModel: BookshelfViewModel;
   @Prop pageWidth: number = 1000;
+  coverImages: CoverImageRepository | undefined = undefined;
   onOpenBook: (book: Book) => void = () => {};
 
   private columns(): number { return this.pageWidth > 1100 ? 4 : this.pageWidth > 600 ? 3 : 2; }
@@ -92,7 +94,7 @@ export struct BookshelfPage {
       Row({ space: this.gap() }) {
         ForEach(row.entries, (entry: ShelfEntry) => {
           Column() {
-            BookItem({ book: entry.book, progress: entry.progress,
+            BookItem({ book: entry.book, progress: entry.progress, coverImages: this.coverImages,
               downloadState: entry.download.state, downloadProgress: entry.download.progress,
               lastRead: entry.book.id === this.viewModel.lastReadBookId,
               bookWidth: this.bookWidth(), actionEnabled: !this.viewModel.busy,
