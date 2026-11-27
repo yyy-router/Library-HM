@@ -104,7 +104,10 @@ export class HomeViewModel {
     } catch (error) {
       if (version === this.searchVersion) {
         if (error instanceof AppError && error.code === 'AUTH_REQUIRED') {
-          this.clearAccount(); await this.loadRecommendations();
+          this.clearAccount();
+          this.message = error.message;
+          await this.loadRecommendations();
+          return;
         }
         this.message = error instanceof AppError ? error.message : '搜索失败，请稍后重试。';
       }

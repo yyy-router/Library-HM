@@ -256,6 +256,34 @@ test('confirmed search authentication failure clears the account and loads publi
   assert.deepEqual(home.recommendations, popular); assert.match(home.message, /登录失效/);
 });
 
+test('slow authentication recovery cannot overwrite a newer login or search message', async () => {
+  const app = createDemoApp(); const results = (await app.catalog.search('')).slice(0, 1);
+  for (const action of ['login', 'search']) {
+    let releasePopular, notifyRecovery, searches = 0;
+    const recovering = new Promise(resolve => { notifyRecovery = resolve; });
+    const home = new HomeViewModel({ search: async () => {
+      if (++searches === 1) throw new AppError('AUTH_REQUIRED', '测试：旧登录失效');
+      return results;
+    }, getRecommended: async () => [], getPopular: () => {
+      notifyRecovery(); return new Promise(resolve => { releasePopular = resolve; });
+    } }, app.bookshelf, { signIn: async () => new AccountSession('new-account', '新读者') });
+    home.session = new AccountSession('old-account', '旧读者'); home.keyword = 'old';
+    const oldSearch = home.search(); await recovering;
+    assert.equal(home.busy, false); assert.equal(home.message, '测试：旧登录失效');
+    if (action === 'login') {
+      home.email = 'reader@example.invalid'; home.password = 'synthetic-password'; await home.signIn();
+      assert.equal(home.message, '登录成功。');
+    } else {
+      home.keyword = 'new'; await home.search(); assert.equal(home.message, '');
+    }
+    const currentMessage = home.message;
+    releasePopular([]); await oldSearch;
+    assert.equal(home.message, currentMessage);
+    if (action === 'login') assert.equal(home.session.accountId, 'new-account');
+    else assert.deepEqual(home.results, results);
+  }
+});
+
 test('bookshelf merges history once per book and applies reading filters, search and sort', async () => {
   const app = createDemoApp();
   const shelf = new BookshelfViewModel(app.bookshelf, app.importer, app.downloader);
