@@ -65,20 +65,20 @@ struct Index {
   @Builder
   tabItem(index: number, title: string, icon: string) {
     Button({ type: ButtonType.Normal }) {
-      Column({ space: 5 }) {
+      Column({ space: 3 }) {
         ReaderIcon({ name: icon, active: this.activeTab === index, iconSize: 22 })
-        Text(title).fontSize(12)
+        Text(title).fontSize(11)
           .fontWeight(this.activeTab === index ? FontWeight.Medium : FontWeight.Regular)
           .fontColor(this.activeTab === index ? ReaderTheme.BLUE : ReaderTheme.MUTED)
       }
       .justifyContent(FlexAlign.Center)
-      .width(112)
-      .height(60)
+      .width(76)
+      .height(46)
     }
-    .width(112)
-    .height(60)
-    .borderRadius(14)
-    .backgroundColor(this.activeTab === index ? ReaderTheme.BLUE_TINT : ReaderTheme.SURFACE)
+    .width(76)
+    .height(46)
+    .borderRadius(23)
+    .backgroundColor(Color.Transparent)
     .accessibilityText(title)
     .accessibilityDescription(this.activeTab === index ? '当前页面' : '')
     .onClick(() => {
@@ -87,34 +87,49 @@ struct Index {
     })
   }
 
+  @Builder
+  bottomNavigation() {
+    Row({ space: 8 }) {
+      this.tabItem(0, '首页', 'home')
+      this.tabItem(1, '书架', 'shelf')
+    }
+    .width(176)
+    .height(56)
+    .padding({ left: 7, right: 7, top: 4, bottom: 4 })
+    .justifyContent(FlexAlign.Center)
+    .borderRadius(28)
+    .border({ width: 0.5, color: ReaderTheme.LINE })
+    .backgroundColor(ReaderTheme.SURFACE)
+    .shadow({ radius: 18, color: ReaderTheme.SHADOW, offsetY: 5 })
+    .margin({ bottom: 8 })
+  }
+
   build() {
-    Column() {
-      if (this.readerVisible) {
-        ReaderPage({ viewModel: this.readerViewModel, onBack: () => this.closeReader() })
-      } else {
-        if (this.activeTab === 0) {
-          AccountHeader({ viewModel: this.homeViewModel, pageWidth: this.pageWidth,
-            onLogin: () => { this.loginController.open(); } })
-        }
-        Column() {
+    Stack({ alignContent: Alignment.Bottom }) {
+      Column() {
+        if (this.readerVisible) {
+          ReaderPage({ viewModel: this.readerViewModel, onBack: () => this.closeReader() })
+        } else {
           if (this.activeTab === 0) {
-            HomePage({ viewModel: this.homeViewModel, pageWidth: this.pageWidth, coverImages: appContainer.covers })
-          } else {
-            BookshelfPage({ viewModel: this.bookshelfViewModel, pageWidth: this.pageWidth, coverImages: appContainer.covers,
-              onOpenBook: (book: Book) => { this.openBook(book); } })
+            AccountHeader({ viewModel: this.homeViewModel, pageWidth: this.pageWidth,
+              onLogin: () => { this.loginController.open(); } })
           }
+          Column() {
+            if (this.activeTab === 0) {
+              HomePage({ viewModel: this.homeViewModel, pageWidth: this.pageWidth, coverImages: appContainer.covers })
+            } else {
+              BookshelfPage({ viewModel: this.bookshelfViewModel, pageWidth: this.pageWidth, coverImages: appContainer.covers,
+                onOpenBook: (book: Book) => { this.openBook(book); } })
+            }
+          }
+          .width('100%')
+          .layoutWeight(1)
         }
-        .width('100%')
-        .layoutWeight(1)
-        Row({ space: 36 }) {
-          this.tabItem(0, '首页', 'home')
-          this.tabItem(1, '书架', 'shelf')
-        }
-        .width('100%')
-        .justifyContent(FlexAlign.Center)
-        .height(78)
-        .border({ width: { top: 1 }, color: ReaderTheme.LINE })
-        .backgroundColor(ReaderTheme.SURFACE)
+      }
+      .width('100%')
+      .height('100%')
+      if (!this.readerVisible) {
+        this.bottomNavigation()
       }
     }
     .width('100%')
