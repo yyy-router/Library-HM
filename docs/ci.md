@@ -25,12 +25,15 @@
 | PR 规范 | 中文 Conventional Commits 标题、描述中的 `Closes #<issue>`，仅在 PR 事件检查 |
 | 纯逻辑类型检查 | 业务模型、仓库、演示实现、ViewModel 的严格 TypeScript 类型错误 |
 | 逻辑回归 | 搜索过滤、清空后的迟到响应与错误丢弃、新搜索或登录的忙碌状态隔离、书架去重、演示导入、历史恢复、下载/重试、未下载阅读拦截、离线本地文件、登录密码清理 |
+| 网络与会话回归 | 查询/表单/JSON、状态码、错误脱敏、取消与句柄释放、真实仓库装配、鉴权与业务失败、会话恢复/删除、ASSET SDK 契约；稀疏书目、匿名热门、封面无鉴权/缓存/去重/失败重试与体积限制 |
 | 主题资源回归 | 亮暗资源名称对应、普通/次级/弱化文字、选中和未选中导航、按钮的实际配色对比度，图标深色版本；不代替设备渲染验证 |
 | 门禁回归 | 在临时副本中故意破坏资源、页面、路径大小写、依赖方向、工作流、合并规则和 PR 信息；资源移动未暂存时检查索引中的旧路径与工作区新资源，保留凭证扫描 |
 | 原生脚本回归 | 模拟依赖安装失败、Lint 工具错误、错误报告、报告缺失或损坏、编译失败、HAP 缺失或为空，验证不能误报成功 |
 | SDK 完整性回归 | 模拟损坏的 SDK 下载，验证 SHA-256 不匹配时不会解压或执行工具 |
 
 纯逻辑检查将选中的 `.ets` 文件复制到被忽略的 `.local/ci/logic/`，由 TypeScript 编译器检查并生成隔离测试模块。测试中的 `@Observed` 是无行为的替身；它不验证 ArkUI 观察机制、UI 语法、设备能力或真实渲染，也不能代替鸿蒙原生编译。凭证检查只是基础规则扫描，不是完整的泄露检测服务。
+
+`platform/` 与 `app/platform/` 含系统 SDK，不进入纯逻辑编译。`tests/network.test.cjs` 编译实际适配器源码并注入 SDK 替身，检查参数、取消、资源释放和安全存储调用；官方 Lint 与原生编译仍检查完整工程。替身不证明真实 NetworkKit/ASSET 已在设备运行。
 
 辅助工具使用 Node.js 24，依赖版本由 `package-lock.json` 固定，工作流使用 `npm ci --ignore-scripts`。官方 Actions 固定到完整提交 SHA。原生脚本回归使用 PowerShell 中的工具替身，只验证编排和失败处理，不代表 SDK 已实际运行。
 
@@ -124,22 +127,29 @@ npm run ci
 
 ## 验证状态与边界
 
-2026-11-26，在本地 Windows 环境实际执行：
+2026-11-27，在本地 Windows 环境实际执行：
 
 | 命令或阶段 | 结果 |
 | --- | --- |
-| `npm run ci` | 工程、资源、分层、文件及工作流检查通过；20 个纯逻辑源文件类型检查通过；60 项测试全部通过 |
-| `scripts/run-harmony.local.ps1 -Task Lint` | 使用根目录源码执行官方 Code Linter，0 个 error、5 个 warn、1 个 suggestion |
+| `npm run ci` | 工程、资源、分层、文件及工作流检查通过；35 个纯逻辑源文件类型检查通过；83 项测试全部通过 |
+| `scripts/run-harmony.local.ps1 -Task Lint` | 使用根目录源码执行官方 Code Linter，0 个 error、4 个 warn、1 个 suggestion |
 | `.local/ci/run-local-signing.mjs`（已忽略） | 使用本地已安装依赖运行 Hvigor 原生编译与签名，`BUILD SUCCESSFUL`；本轮未执行 clean 或重新安装依赖 |
 | 原生 HAP | 生成非空的未签名与调试签名 HAP，位于 `entry/build/default/outputs/default/` |
+| 平板真机横屏 | 2800×1840 截图与 UI 树复核个人推荐、20 条“机器学习”搜索结果、真实封面和滚动；卡片原始边界未跨出所属列 |
 
 本次使用 DevEco Studio 26 自带的 Windows 工具：Node.js `24.14.1`、ohpm `26.0.0.630`、Hvigor `6.26.9`、Code Linter `6.0.240`、JBR `25.0.2`、SDK `26.0.0.105`（API 26）。本机私有脚本 `scripts/run-harmony.local.ps1` 已被 Git 忽略，仅临时设置进程环境，执行结束后恢复。
 
-五条 Lint 警告建议简单组件优先使用 `@Builder`，另有一条 WaterFlow 预加载建议；按当前策略均不阻止通过。本轮没有安装到设备，尚未完成真机亮暗切换或横竖屏验收。下载成功和本地导入的逻辑测试使用文件适配器替身，只证明状态契约，不代表已下载、落盘或渲染真实图书。
+四条 Lint 警告建议简单组件优先使用 `@Builder`，另有一条 WaterFlow 预加载建议；按当前策略均不阻止通过。本轮已覆盖安装调试包并验证当前平板横屏，竖屏和完整亮暗切换尚未验收。下载成功和本地导入的逻辑测试使用文件适配器替身，只证明状态契约，不代表已下载、落盘或渲染真实图书。
 
 评审修复见 Issue #11。签名导入回归只操作临时目录中的合成配置，覆盖本地签名写入、临时文件写入和替换失败：原共享文件逐字节保留，清理本轮新建文件后可重试；临时路径冲突不删除原有文件。真实本地签名不用于故障注入。
 
-PR #10 的 `be440c0` 已通过远端 `Quality Gate` 和 `HarmonyOS Gate`；本轮尚未推送的评审修复仍以本地结果为准。
+PR #10 已合并，其远端双门禁通过；网络层属于后续工作，不能沿用旧提交的远端结果。
+
+Issue #12 的网络改动尚未推送。本机匿名请求 `https://z-lib.gd/eapi/info`、`https://z-lib.gl/eapi/info`、`https://article.sk/eapi/info` 均得到 HTTP 200 且解析出 JSON `success: 1`；服务响应的 Content-Type 不保证写成 JSON，不能仅依赖该头判断。此检查没有账户凭证，也不是原生设备请求；真实登录、用户搜索、推荐与 ASSET 跨启动恢复仍需在设备上验收。
+
+Issue #13 匿名热门与封面验证：`https://z-lib.gd/eapi/book/most-popular` 返回 HTTP 200、`success: 1`、100 条书目，首条字段没有 `extension`；`/eapi/user/book/recommended` 无凭证时返回 HTTP 403、`success: 0`。抽取一张真实封面以无鉴权客户端读取，得到 HTTP 200、JPEG 魔数与 10185 字节正文。匿名探测不代表个人推荐验证，后者已按下段在真实登录态设备上检查。回归覆盖登录/退出与迟到列表响应竞争，竖屏验收仍未完成。
+
+后续连接设备复核发现：FlowItem 每列约 605px，而卡片的百分比宽度被解析为整个 WaterFlow 的 2576px，导致相邻卡片覆盖封面与文本。改为读取实际内容区并传入明确列宽后，首页和搜索的截图恢复正常，滚动后的 UI 树分别检查 8 张卡片，原始边界均位于各自列内。设备显示真实个人推荐，搜索得到 20 条且格式可显示 PDF/EPUB；缺失格式字段的卡片按用户要求隐藏标签，简介实体转义也已处理。截图和 UI 树保留在被忽略的 `.local/ci/screenshots/`，不携带到 Git；未读取或输出会话密钥。
 
 2026-11-25，[PR #5](https://github.com/yyy-router/Library-HM/pull/5) 在提交 `22b81af` 上首次完成了 [GitHub Actions 验证](https://github.com/yyy-router/Library-HM/actions/runs/45545986654)：`Quality Gate` 和 `HarmonyOS Gate` 均通过。Linux runner 成功安装并校验 Command Line Tools `5.1.0.840`，Code Linter 为 0 个 error、0 个 warn，Hvigor 原生编译成功，Lint 报告和未签名 HAP 两份 artifact 均已上传。
 
