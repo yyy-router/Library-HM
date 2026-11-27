@@ -131,25 +131,27 @@ npm run ci
 
 | 命令或阶段 | 结果 |
 | --- | --- |
-| `npm run ci` | 工程、资源、分层、文件及工作流检查通过；35 个纯逻辑源文件类型检查通过；83 项测试全部通过 |
+| `npm run ci` | 工程、资源、分层、文件及工作流检查通过；35 个纯逻辑源文件类型检查通过；87 项测试全部通过 |
 | `scripts/run-harmony.local.ps1 -Task Lint` | 使用根目录源码执行官方 Code Linter，0 个 error、4 个 warn、1 个 suggestion |
 | `.local/ci/run-local-signing.mjs`（已忽略） | 使用本地已安装依赖运行 Hvigor 原生编译与签名，`BUILD SUCCESSFUL`；本轮未执行 clean 或重新安装依赖 |
 | 原生 HAP | 生成非空的未签名与调试签名 HAP，位于 `entry/build/default/outputs/default/` |
-| 平板真机横屏 | 2800×1840 截图与 UI 树复核个人推荐、20 条“机器学习”搜索结果、真实封面和滚动；卡片原始边界未跨出所属列 |
+| 此前平板真机横屏 | `9a7ea85` 阶段的 2800×1840 截图与 UI 树复核个人推荐、20 条“机器学习”搜索结果、真实封面和滚动；卡片原始边界未跨出所属列。本次评审修复未重新安装到设备 |
 
 本次使用 DevEco Studio 26 自带的 Windows 工具：Node.js `24.14.1`、ohpm `26.0.0.630`、Hvigor `6.26.9`、Code Linter `6.0.240`、JBR `25.0.2`、SDK `26.0.0.105`（API 26）。本机私有脚本 `scripts/run-harmony.local.ps1` 已被 Git 忽略，仅临时设置进程环境，执行结束后恢复。
 
-四条 Lint 警告建议简单组件优先使用 `@Builder`，另有一条 WaterFlow 预加载建议；按当前策略均不阻止通过。本轮已覆盖安装调试包并验证当前平板横屏，竖屏和完整亮暗切换尚未验收。下载成功和本地导入的逻辑测试使用文件适配器替身，只证明状态契约，不代表已下载、落盘或渲染真实图书。
+四条 Lint 警告建议简单组件优先使用 `@Builder`，另有一条 WaterFlow 预加载建议；按当前策略均不阻止通过。此前布局验证已覆盖安装调试包并检查平板横屏，竖屏和完整亮暗切换尚未验收。下载成功和本地导入的逻辑测试使用文件适配器替身，只证明状态契约，不代表已下载、落盘或渲染真实图书。
 
 评审修复见 Issue #11。签名导入回归只操作临时目录中的合成配置，覆盖本地签名写入、临时文件写入和替换失败：原共享文件逐字节保留，清理本轮新建文件后可重试；临时路径冲突不删除原有文件。真实本地签名不用于故障注入。
 
-PR #10 已合并，其远端双门禁通过；网络层属于后续工作，不能沿用旧提交的远端结果。
+PR #14 的 `9a7ea85` 已通过远端 `Quality Gate` 和 `HarmonyOS Gate`；三项评审修复须通过最新提交的远端门禁，不能沿用该提交的结果。
 
-Issue #12 的网络改动尚未推送。本机匿名请求 `https://z-lib.gd/eapi/info`、`https://z-lib.gl/eapi/info`、`https://article.sk/eapi/info` 均得到 HTTP 200 且解析出 JSON `success: 1`；服务响应的 Content-Type 不保证写成 JSON，不能仅依赖该头判断。此检查没有账户凭证，也不是原生设备请求；真实登录、用户搜索、推荐与 ASSET 跨启动恢复仍需在设备上验收。
+Issue #12 的网络改动已纳入 PR #14。本机匿名请求 `https://z-lib.gd/eapi/info`、`https://z-lib.gl/eapi/info`、`https://article.sk/eapi/info` 均得到 HTTP 200 且解析出 JSON `success: 1`；服务响应的 Content-Type 不保证写成 JSON，不能仅依赖该头判断。此检查没有账户凭证，也不是原生设备请求；设备搜索与推荐证据见下文，会话长期恢复仍待验收。
 
 Issue #13 匿名热门与封面验证：`https://z-lib.gd/eapi/book/most-popular` 返回 HTTP 200、`success: 1`、100 条书目，首条字段没有 `extension`；`/eapi/user/book/recommended` 无凭证时返回 HTTP 403、`success: 0`。抽取一张真实封面以无鉴权客户端读取，得到 HTTP 200、JPEG 魔数与 10185 字节正文。匿名探测不代表个人推荐验证，后者已按下段在真实登录态设备上检查。回归覆盖登录/退出与迟到列表响应竞争，竖屏验收仍未完成。
 
 后续连接设备复核发现：FlowItem 每列约 605px，而卡片的百分比宽度被解析为整个 WaterFlow 的 2576px，导致相邻卡片覆盖封面与文本。改为读取实际内容区并传入明确列宽后，首页和搜索的截图恢复正常，滚动后的 UI 树分别检查 8 张卡片，原始边界均位于各自列内。设备显示真实个人推荐，搜索得到 20 条且格式可显示 PDF/EPUB；缺失格式字段的卡片按用户要求隐藏标签，简介实体转义也已处理。截图和 UI 树保留在被忽略的 `.local/ci/screenshots/`，不携带到 Git；未读取或输出会话密钥。
+
+本次 PR #14 评审修复增加 4 项测试并扩充文本用例，完整测试共 87 项：存储写入期间发出的旧凭据请求在新会话发布后返回 HTTP 401、登录错误 JSON 403 或传输层 401，均不能清除新会话；过期存储读取不能覆盖待保存会话；失败保存保留当前凭据版本；登录失效恢复等待期间的新登录或搜索提示不被旧错误覆盖。比较表达式、带引号属性、常规标签和注释分别验证，仍使用纯逻辑及 SDK 契约替身，不使用真实账号作故障注入。
 
 2026-11-25，[PR #5](https://github.com/yyy-router/Library-HM/pull/5) 在提交 `22b81af` 上首次完成了 [GitHub Actions 验证](https://github.com/yyy-router/Library-HM/actions/runs/45545986654)：`Quality Gate` 和 `HarmonyOS Gate` 均通过。Linux runner 成功安装并校验 Command Line Tools `5.1.0.840`，Code Linter 为 0 个 error、0 个 warn，Hvigor 原生编译成功，Lint 报告和未签名 HAP 两份 artifact 均已上传。
 
