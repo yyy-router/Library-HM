@@ -20,6 +20,11 @@ const { readBookText } = load('data/remote/EapiTypes.js');
 const origin = 'https://example.invalid';
 const json = data => new HttpResponse(200, JSON.stringify(data));
 const book = (id = 1, hash = 'hash-a') => ({ id, hash, title: `Book ${id}`, author: 'Author', extension: 'epub' });
+function deferred() {
+  let resolve, reject;
+  const promise = new Promise((success, failure) => { resolve = success; reject = failure; });
+  return { promise, resolve, reject };
+}
 function client(handler, base = origin) {
   const calls = []; const config = new HttpConfig(); config.baseUrl = base;
   const transport = { send: async (request, token) => { calls.push(request); return handler(request, token); } };
@@ -325,6 +330,65 @@ test('a stale auth failure cannot erase a newer account session', async () => {
   await assert.rejects(pending, { status: 401 });
   assert.equal(app.api.sessions.display.accountId, '43');
   assert.ok((await vault.read()).includes('synthetic-new-key'));
+});
+
+test('requests started during a credential write cannot invalidate the newly published session', async () => {
+  for (const reply of ['http401', 'business403', 'transport401']) {
+    let stored, holdWrite = false;
+    const writeStarted = deferred(), writeRelease = deferred(), requestStarted = deferred(), response = deferred();
+    const vault = { read: async () => stored, clear: async () => { stored = undefined; },
+      write: async value => { if (holdWrite) { writeStarted.resolve(); await writeRelease.promise; } stored = value; } };
+    const app = new AppContainer({ send: request => {
+      assert.equal(request.headers['remix-userid'], '42');
+      requestStarted.resolve(); return response.promise;
+    } }, origin, vault);
+    await app.api.sessions.set('42', 'synthetic-old-key', new AccountSession('42', 'Old'));
+    const oldVersion = app.api.sessions.version;
+    holdWrite = true;
+    const saving = app.api.sessions.set('43', 'synthetic-new-key', new AccountSession('43', 'New'));
+    await writeStarted.promise;
+    assert.equal(app.api.sessions.version, oldVersion);
+    const request = app.api.get('/eapi/user/profile');
+    await requestStarted.promise;
+    writeRelease.resolve(); await saving;
+    assert.ok(app.api.sessions.version > oldVersion);
+    assert.equal(app.api.sessions.display.accountId, '43');
+    if (reply === 'http401') response.resolve(new HttpResponse(401, ''));
+    else if (reply === 'business403') response.resolve(new HttpResponse(403, JSON.stringify({ success: 0, error: 'Please login' })));
+    else response.reject(new HttpError(HttpErrorCode.Status, 401));
+    await assert.rejects(request, { code: reply === 'transport401' ? HttpErrorCode.Status : 'REQUEST_SUPERSEDED' });
+    assert.equal(app.api.sessions.display.accountId, '43');
+    assert.equal(JSON.parse(stored).id, '43');
+    assert.equal(app.api.sessions.headers()['remix-userkey'], 'synthetic-new-key');
+  }
+});
+
+test('a pending credential write invalidates an earlier vault read before any credentials are published', async () => {
+  const readStarted = deferred(), readRelease = deferred(), writeStarted = deferred(), writeRelease = deferred();
+  let stored;
+  const vault = { read: async () => { readStarted.resolve(); return readRelease.promise; }, clear: async () => { stored = undefined; },
+    write: async value => { writeStarted.resolve(); await writeRelease.promise; stored = value; } };
+  const sessions = new EapiSessionStore(vault, origin);
+  const restoring = sessions.restore(); await readStarted.promise;
+  const saving = sessions.set('43', 'synthetic-new-key', new AccountSession('43', 'New'));
+  await writeStarted.promise;
+  readRelease.resolve(JSON.stringify({ origin, id: '42', key: 'synthetic-old-key' })); await restoring;
+  assert.equal(sessions.display, undefined);
+  writeRelease.resolve(); await saving;
+  assert.equal(sessions.display.accountId, '43'); assert.equal(JSON.parse(stored).id, '43');
+});
+
+test('a failed replacement write preserves the active credentials and their request revision', async () => {
+  let stored, failWrite = false;
+  const vault = { read: async () => stored, clear: async () => { stored = undefined; },
+    write: async value => { if (failWrite) throw new Error('synthetic-write-failure'); stored = value; } };
+  const sessions = new EapiSessionStore(vault, origin);
+  await sessions.set('42', 'synthetic-old-key', new AccountSession('42', 'Old'));
+  const version = sessions.version;
+  failWrite = true;
+  await assert.rejects(sessions.set('43', 'synthetic-new-key', new AccountSession('43', 'New')));
+  assert.equal(sessions.version, version); assert.equal(sessions.display.accountId, '42');
+  assert.equal(sessions.headers()['remix-userkey'], 'synthetic-old-key'); assert.equal(JSON.parse(stored).id, '42');
 });
 
 test('a failed secure save never reports a successful login, and malformed saved credentials are discarded', async () => {

@@ -11,6 +11,7 @@ export class EapiSessionStore {
   private userKey: string = '';
   private account: AccountSession | undefined = undefined;
   private revision: number = 0;
+  private operationVersion: number = 0;
   private restored: boolean = false;
   private pending: Promise<void> = Promise.resolve();
   private readonly vault: SessionVault;
@@ -24,9 +25,10 @@ export class EapiSessionStore {
   async restore(): Promise<void> {
     if (this.restored) return;
     await this.pending;
-    const version = this.revision;
+    if (this.restored) return;
+    const operation = this.operationVersion;
     const value = await this.vault.read();
-    if (version !== this.revision) return;
+    if (operation !== this.operationVersion || this.restored) return;
     this.restored = true;
     if (!value) return;
     let saved: SavedSession;
@@ -41,15 +43,18 @@ export class EapiSessionStore {
 
   async set(id: string, key: string, account: AccountSession): Promise<void> {
     if (!id || !key || /[\r\n]/.test(key)) throw new AppError('INVALID_SESSION', '会话数据无效。');
-    const version = ++this.revision;
+    const operation = ++this.operationVersion;
     const saved: SavedSession = { origin: this.origin, id: id, key: key };
     await this.enqueue(() => this.vault.write(JSON.stringify(saved)));
-    if (version !== this.revision) throw new AppError('REQUEST_SUPERSEDED', '会话已改变，请重新登录。');
+    if (operation !== this.operationVersion) throw new AppError('REQUEST_SUPERSEDED', '会话已改变，请重新登录。');
+    // 请求版本随可用凭据一起发布，不能让旧凭据携带新版本号。
+    this.revision++;
     this.restored = true; this.userId = id; this.userKey = key; this.account = account;
   }
   update(account: AccountSession): void { if (this.userId) this.account = account; }
   async clear(): Promise<void> {
-    this.revision++; this.restored = true; this.userId = ''; this.userKey = ''; this.account = undefined;
+    this.operationVersion++; this.revision++;
+    this.restored = true; this.userId = ''; this.userKey = ''; this.account = undefined;
     await this.enqueue(() => this.vault.clear());
   }
 
