@@ -55,7 +55,10 @@ export function readBookText(value: string | undefined, stripMarkup: boolean = f
       return code > 0 && code <= 0x10FFFF && !(code >= 0xD800 && code <= 0xDFFF) ? String.fromCodePoint(code) : match;
     });
   }
-  if (stripMarkup) text = text.replace(/<[^>]*>/g, ' ');
+  if (stripMarkup) {
+    // 只移除标签语法与注释；保留比较表达式，正确识别属性引号中的大于号。
+    text = text.replace(/<!--[\s\S]*?-->|<!DOCTYPE\s+[^>]*>|<\/?[a-z][a-z0-9:-]*(?:\s+[a-z_:][a-z0-9_.:-]*(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+))?)*\s*\/?>/gi, ' ');
+  }
   return text.replace(/\s+/g, ' ').trim();
 }
 export function readId(value: string | number | undefined): string {

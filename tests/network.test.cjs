@@ -77,6 +77,11 @@ test('catalog display decodes HTML entities, strips description markup and prese
   assert.equal(readBookText('&#20013;&#x6587; &#x1F4DA;'), '中文 📚');
   assert.equal(readBookText('&#x110000; &#55296; &unknown;'), '&#x110000; &#55296; &unknown;');
   assert.equal(readBookText('A &lt; B'), 'A < B');
+  assert.equal(readBookText('1 &lt; 2 and 3 &gt; 2', true), '1 < 2 and 3 > 2');
+  assert.equal(readBookText('x<y && z>w; 1<2; 3>2', true), 'x<y && z>w; 1<2; 3>2');
+  assert.equal(readBookText('<p class="lead">Math: 1 &lt; 2</p><br/><span data-label="a > b">3 &gt; 2</span>', true),
+    'Math: 1 < 2 3 > 2');
+  assert.equal(readBookText('Before<!-- comment --><strong>after</strong>', true), 'Before after');
 });
 
 test('catalog differentiates truly empty lists from malformed nonempty responses and keeps sparse recommendations', async () => {
